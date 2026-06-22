@@ -504,22 +504,9 @@ with tab_rca:
     st.markdown("## ⚙️ Funnel Conversion Insights Briefing")
     st.caption("Reviewing the conversion paths of leads referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
     
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
-    with filter_col2:
-        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
-        
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
-    if rca_client_filter and "All" not in rca_client_filter:
-        df_rca_curr = df_rca_curr[df_rca_curr['client'].isin(rca_client_filter)]
-        df_rca_prev = df_rca_prev[df_rca_prev['client'].isin(rca_client_filter)]
-    if rca_region_filter and "All" not in rca_region_filter:
-        df_rca_curr = df_rca_curr[df_rca_curr['region'].isin(rca_region_filter)]
-        df_rca_prev = df_rca_prev[df_rca_prev['region'].isin(rca_region_filter)]
-        
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
@@ -592,7 +579,7 @@ with tab_rca:
         with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
             try:
                 gemini_api_key_clean = gemini_api_key.strip()
-                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={gemini_api_key_clean}"
+                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_api_key_clean}"
                 
                 context_payload = {
                     "overall": fo_rca,
@@ -757,7 +744,7 @@ with tab_chat:
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
                     gemini_api_key_clean = gemini_api_key.strip()
-                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={gemini_api_key_clean}"
+                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_api_key_clean}"
                     
                     try:
                         resp = requests.post(endpoint, headers={'Content-Type': 'application/json'}, json={"contents": gemini_history}, timeout=20)
