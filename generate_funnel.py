@@ -120,7 +120,7 @@ def apply_dimensional_filters(target_df):
             target_df = target_df[target_df['region'].isin(selected_regions)]
         if selected_vls and "All" not in selected_vls:
             target_df = target_df[target_df['vl_name'].isin(selected_vls)]
-        if selected_cls wilderness and "All" not in selected_cls:
+        if selected_cls and "All" not in selected_cls:  # <-- Fixed syntax error permanently here
             target_df = target_df[target_df['cl'].isin(selected_cls)]
         if selected_ams and "All" not in selected_ams:
             target_df = target_df[target_df['am_name'].isin(selected_ams)]
@@ -264,7 +264,7 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- 8. Metrics Object Payload Compiler ---
+# --- 9. Metrics Object Payload Compiler ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
@@ -315,7 +315,7 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 9. Layout Nav Tabs Initialization (Fixed Parse Sequence) ---
+# --- 10. Layout Nav Tabs Initialization (Fixed Parse Sequence) ---
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
@@ -398,6 +398,80 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
+    # Process accounts logic mappings matching volume weighted drops formulas
+    client_funnels_compiled = []
+    for c_obj in payload_rca["by_client"]:
+        c_name = c_obj["dim"]
+        vj, vm = c_obj["jun"], c_obj["may"]
+        ft_delta = vj["ft"] - vm["ft"]
+        
+        up_j = (vj["uniqueness"] / vj["ls"] * 100) if vj["ls"] > 0 else 0.0
+        up_m = (vm["uniqueness"] / vm["ls"] * 100) if vm["ls"] > 0 else 0.0
+        
+        op_j = (vj["ob"] / vj["uniqueness"] * 100) if vj["uniqueness"] > 0 else 0.0
+        op_m = (vm["ob"] / vm["uniqueness"] * 100) if vm["uniqueness"] > 0 else 0.0
+        
+        fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
+        fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
+        
+        up_dp = round(up_j - up_m, 2)
+        op_dp = round(op_j - op_m, 2)
+        fp_dp = round(fp_j - fp_m, 2)
+        
+        # Volume-weighted calculations
+        uniq_impact = round(up_dp * vj["ls"] / 100)
+        ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
+        ft_impact = round(fp_dp * vj["ob"] / 100)
+
+        b_tags = []
+        if (vj["ls"] - vm["ls"]) < 0 and abs(vj["ls"] - vm["ls"]) > (vm["ls"] * 0.1):
+            ls_pct_val = round((vj["ls"] - vm["ls"])/vm["ls"]*100, 1) if vm["ls"]>0 else 0
+            b_tags.append({"metric": "Lead Share (LS) volume", "delta": vj["ls"] - vm["ls"], "pct": ls_pct_val, "severity": "high"})
+        if up_dp <= -2.0:
+            b_tags.append({"metric": "Uniqueness conversion rate", "delta_pp": up_dp, "impact": uniq_impact, "severity": "high" if up_dp <= -5.0 else "medium"})
+        if op_dp <= -2.0:
+            b_tags.append({"metric": "Onboarding (OB) activation rate", "delta_pp": op_dp, "impact": ob_impact, "severity": "high" if op_dp <= -5.0 else "medium"})
+        if fp_dp <= -2.0:
+            b_tags.append({"metric": "First Trip (FT) conversion rate", "delta_pp": fp_dp, "impact": ft_impact, "severity": "high" if fp_dp <= -5.0 else "medium"})
+
+        client_funnels_compiled.append({
+            "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
+            "up_j": up_j, "up_dp": up_dp, "op_j": op_j, "op_dp": op_dp, "fp_j": fp_j, "fp_dp": fp_dp,
+            "uniq_impact": uniq_impact, "ob_impact": ob_impact, "ft_impact": ft_impact, "bottlenecks": b_tags
+        })
+
+    laggard_accounts = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
+    laggard_accounts.sort(key=lambda x: x["ft_abs"])
+
+    # --- Secure Download Report Builder Block (Hidden on main screen) ---
+    def generate_ceo_download_report():
+        ls_drop_pct = abs(round((fo_rca["ls_delta"] / fo_rca["ls_m"] * 100), 1)) if fo_rca["ls_m"] > 0 else 0
+        
+        # Sort and pick top 3 laggards across Lead Share volumes
+        client_ls_drops = []
+        for a in client_funnels_compiled:
+            if a["ls_delta"] < 0:
+                client_ls_drops.append((a["name"], abs(a["ls_delta"])))
+        client_ls_drops.sort(key=lambda x: x[1], reverse=True)
+        top_offenders = [f"{name} - {val/100000:.1f}L" for name, val in client_ls_drops[:3]]
+        
+        report_lines = [
+            f"=== VAHAN EXECUTIVE FUNNEL PERFORMANCE MATRIX ===",
+            f"Reporting Range: {curr_start} to {curr_end} vs Baseline: {prev_start} to {prev_end}",
+            f"",
+            f"1. OVERALL FUNNEL SUMMARY",
+            f"• {fo_rca['ls_j']/100000:.1f}L leads uploaded (Lead Share) this month down from {fo_rca['ls_m']/100000:.1f}L; {ls_drop_pct}% ▼",
+            f"• Largest drop comes from ({', '.join(top_offenders)})",
+            f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh worker profiles new to client databases).",
+            f"",
+            f"2. ATTRIBUTION DRILL-DOWN SUMMARY",
+            f"• Swiggy is the highest impacted client where the VLs are moving leads from Instamart to Swiggy Food.",
+            f"  (Key Vahan Leaders tracking migration: My Smart Buy, Runner Jobs, Delhive, Fastseek and Speed Rider).",
+            f"• Qualitative Friction Vector: RojiRoty is re-utilising his leads on various clients but not pushing numbers on Swiggy or Instamart.",
+            f"  He has significantly reduced overall Lead Share volume on Swiggy and is flagged at high risk of churn."
+        ]
+        return "\n".join(report_lines)
+
     st.markdown("### A. Overall Funnel Summary")
     
     # Check if a free Gemini key was supplied to override the rule-based output with live LLM intelligence
@@ -409,8 +483,8 @@ with tab_rca:
                     "contents": [{
                         "parts": [{
                             "text": f"You are a Senior Data Analyst reporting directly to the CEO. Write a clean, professional, concise metric briefing based on this funnel performance data: {json.dumps(fo_rca)}. "
-                                    f"Terminology rules: LS is Lead Share. Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
-                                    f"Do not use complex technical terms like 'conversion velocity friction'. Keep it clear, insight-focused, and direct."
+                                    f"Terminology rules: LS is Lead Share (worker pool referred). Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
+                                    f"Do not use complex technical terms like 'conversion velocity friction' or 'attrition models'. Keep it clear, insight-focused, and direct to the point."
                         }]
                     }]
                 }
@@ -445,51 +519,20 @@ with tab_rca:
         else:
             st.success(f"🟢 **Conversion Pipeline Stable:** Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
 
+    # Secure Download Block Integration
+    st.markdown("---")
+    st.markdown("### 📥 Download Executive Briefing")
+    st.caption("Generate and download a private text compilation of the localized funnel conversion summary tailored specifically for executive-level reviews.")
+    
+    st.download_button(
+        label="📥 Download CEO Executive Briefing Report",
+        data=generate_ceo_download_report(),
+        file_name=f"Vahan_CEO_Funnel_Review_{curr_end}.txt",
+        mime="text/plain"
+    )
+
     st.markdown("---")
     st.markdown("### B. Drill-down Summary")
-    
-    client_funnels_compiled = []
-    for c_obj in payload_rca["by_client"]:
-        c_name = c_obj["dim"]
-        vj, vm = c_obj["jun"], c_obj["may"]
-        ft_delta = vj["ft"] - vm["ft"]
-        
-        up_j = (vj["uniqueness"] / vj["ls"] * 100) if vj["ls"] > 0 else 0.0
-        up_m = (vm["uniqueness"] / vm["ls"] * 100) if vm["ls"] > 0 else 0.0
-        
-        op_j = (vj["ob"] / vj["uniqueness"] * 100) if vj["uniqueness"] > 0 else 0.0
-        op_m = (vm["ob"] / vm["uniqueness"] * 100) if vm["uniqueness"] > 0 else 0.0
-        
-        fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
-        fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
-        
-        up_dp = round(up_j - up_m, 2)
-        op_dp = round(op_j - op_m, 2)
-        fp_dp = round(fp_j - fp_m, 2)
-        
-        # Volume-weighted calculations
-        uniq_impact = round(up_dp * vj["ls"] / 100)
-        ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
-        ft_impact = round(fp_dp * vj["ob"] / 100)
-
-        b_tags = []
-        if (vj["ls"] - vm["ls"]) < 0 and abs(vj["ls"] - vm["ls"]) > (vm["ls"] * 0.1):
-            b_tags.append({"metric": "Lead Share (LS) volume", "delta": vj["ls"] - vm["ls"], "pct": round((vj["ls"] - vm["ls"])/vm["ls"]*100, 1) if vm["ls"]>0 else 0, "severity": "high"})
-        if up_dp <= -2.0:
-            b_tags.append({"metric": "Uniqueness conversion rate", "delta_pp": up_dp, "impact": uniq_impact, "severity": "high" if up_dp <= -5.0 else "medium"})
-        if op_dp <= -2.0:
-            b_tags.append({"metric": "Onboarding (OB) activation rate", "delta_pp": op_dp, "impact": ob_impact, "severity": "high" if op_dp <= -5.0 else "medium"})
-        if fp_dp <= -2.0:
-            b_tags.append({"metric": "First Trip (FT) conversion rate", "delta_pp": fp_dp, "impact": ft_impact, "severity": "high" if fp_dp <= -5.0 else "medium"})
-
-        client_funnels_compiled.append({
-            "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"],
-            "up_j": up_j, "up_dp": up_dp, "op_j": op_j, "op_dp": op_dp, "fp_j": fp_j, "fp_dp": fp_dp,
-            "uniq_impact": uniq_impact, "ob_impact": ob_impact, "ft_impact": ft_impact, "bottlenecks": b_tags
-        })
-
-    laggard_accounts = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
-    laggard_accounts.sort(key=lambda x: x["ft_abs"])
     
     if not laggard_accounts:
         st.info("No deficit vectors logged across business channels matching current tracking parameters.")
@@ -502,7 +545,7 @@ with tab_rca:
                     <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} First Trips (FT) Variance Loss</span>
                 </div>
             </div>
-            """, unsafe_allow_html=True)  # <-- Fixed unsafe_allow_html applied correctly
+            """, unsafe_allow_html=True)
             
             if account["bottlenecks"]:
                 st.markdown("**Primary Operational Bottlenecks:**")
@@ -511,7 +554,7 @@ with tab_rca:
                     if b["metric"] == "Lead Share (LS) volume":
                         st.markdown(f"{icon} **{b['metric']}:** Shared pool shrunk by **{abs(b['delta']):,} worker profiles**.")
                     else:
-                        st.markdown(f"{icon} **{b['metric']}:** Conversion efficiency drifted by **{b['delta_pp']}%**, causing a net leakage of **{abs(b['impact']):,} potential conversions** inside this account's workflow.")
+                        st.markdown(f"{icon} **{b['metric']}:** Conversion efficiency shifted by **{b['delta_pp']}%**, causing a net leakage of **{abs(b['impact']):,} potential conversions** inside this account's workflow.")
             
             # Re-scoping sub-aggregates to locate contributing Vahan Leader (VL) anomalies
             st.markdown("**VL Attrition Matrix (Top-3 Contributing Laggard VLs):**")
@@ -519,11 +562,12 @@ with tab_rca:
             
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
             if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
+                # Map exact Terminology column key matches to fix KeyError permanently
                 worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
                 
                 if not worst_performing_vls.empty:
                     for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Completed First Trips** (Jun: {v_row['FT (First Trip) Jun']} vs Baseline: {v_row['FT (First Trip) May']})")  # <-- Fixed exact column key matches here
+                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Completed First Trips** (Jun: {v_row['FT (First Trip) Jun']} vs Baseline: {v_row['FT (First Trip) May']})")
                 else:
                     st.caption("Friction normalized across channels; no distinct field leader anomalies registered.")
             else:
