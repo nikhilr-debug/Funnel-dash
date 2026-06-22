@@ -7,7 +7,7 @@ from datetime import date, timedelta
 # --- Executive Dashboard Configuration ---
 st.set_page_config(page_title="Executive Funnel Review & Conversion Insights", layout="wide")
 
-# Global High-Contrast Styling Tokens (Guarantees absolute text visibility across light and dark user themes)
+# Global High-Contrast Styling Tokens
 st.markdown("""
 <style>
     .up { color: #4a9e2f !important; font-weight: 600; }
@@ -23,7 +23,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 1. Live API Data Fetching Engine ---
-@st.cache_data(ttl=1800)  # 30-minute cache to safeguard Redash endpoint performance
+@st.cache_data(ttl=1800)
 def fetch_and_compile_data():
     api_url = "https://redash.vahan.link/api/queries/17631/results.json"
     api_key = "4aFm2iOoyx8I91svQccdeZr0jmaiUsMFSRinZcmu"
@@ -269,7 +269,25 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- 9. Metrics Object Payload Compiler ---
+# --- Dictionary Mapping User Selections to Actual DataFrame Columns ---
+SORT_METRICS_MAP = {
+    "FT Δ": "FT Δ",
+    "LS Δ": "LS Δ",
+    "Uniq Δ": "Unique Δ",
+    "OB Δ": "OB Δ",
+    "Uniq% Δpp": "Uniq Δpp",
+    "OB% Δpp": "OB Δpp",
+    "FT/OB% Δpp": "FT/OB Δpp",
+    "LS Δ%": "LS Δ%",
+    "FT Δ%": "FT Δ%",
+    "FT Jun": "FT (First Trip) Jun",
+    "LS Jun": "LS (Lead Share) Jun",
+    "Uniq% Jun": "Uniq%",
+    "OB% Jun": "OB%",
+    "FT/OB% Jun": "FT/OB%"
+}
+
+# --- 6. Metrics Object Payload Compiler ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
@@ -318,11 +336,19 @@ def build_html_metric_payload(df_c, df_p):
             "by_vl": roll_dim(sub_c, sub_p, 'vl_name')
         }
 
+    compiled["region_drill"] = {}
+    for rg in df_c['region'].unique():
+        sub_rg = df_c[df_c['region'] == rg]
+        sub_rg_p = df_p[df_p['region'] == rg]
+        compiled["region_drill"][rg] = {
+            "by_vl": roll_dim(sub_rg, sub_rg_p, 'vl_name')
+        }
+
     return compiled
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 10. Layout Nav Tabs Initialization (Fixed Parse Sequence) ---
+# --- 7. Layout Nav Tabs Initialization ---
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
@@ -350,33 +376,125 @@ with tab_ui:
     </div>
     """, height=115)
 
-    st.markdown("#### Client cut")
+    st.markdown("#### Client Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
 
-    st.markdown("#### Product type cut")
+    st.markdown("#### Product Type Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
 
-    st.markdown("#### Region cut")
+    st.markdown("#### Region Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    st.markdown("#### VL cut — Configurable Volume Scan")
-    top_n_vl = st.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20)
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_vl"]).head(top_n_vl), "s5")
+    # ----- DYNAMIC TOP N DRILLDOWNS WITH SORT SELECTORS -----
+    
+    # 1. VL Cut
+    st.markdown("#### VL Cut — Configurable Volume Scan")
+    col1, col2 = st.columns(2)
+    top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
+    sort_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s5_sort")
+    
+    df_s5 = transform_to_replicated_dataframe(payload["by_vl"])
+    if not df_s5.empty:
+        df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=False)
+    display_replicated_table(df_s5.head(top_n_vl), "s5")
 
+    # 2. Client x VL Drilldown
     st.markdown("#### Client × VL Matrix Drilldown")
     active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
-    selected_client_drill = st.selectbox("Isolate Specific Corporate Partner Focus", ["All Clients"] + active_drill_list)
-    top_n_drill_s9 = st.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20)
+    selected_client_drill = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_drill_list, default=["All"], key="s9_drill_select")
     
-    if selected_client_drill != "All Clients":
-        drilled_rows = payload["funnel_drill"].get(selected_client_drill, {}).get("by_vl", [])
-    else:
-        drilled_rows = []
+    col1, col2 = st.columns(2)
+    top_n_drill_s9 = col1.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20, key="s9_slider")
+    sort_s9 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s9_sort")
+    
+    drilled_rows_vl = []
+    if "All" in selected_client_drill or not selected_client_drill:
         for c, data in payload["funnel_drill"].items():
             for row in data["by_vl"]:
-                drilled_rows.append({**row, "dim": f"{c} · {row['dim']}"})
-                
-    display_replicated_table(transform_to_replicated_dataframe(drilled_rows).head(top_n_drill_s9), "s9")
+                drilled_rows_vl.append({**row, "dim": f"{c} · {row['dim']}"})
+    else:
+        for cl_isolate in selected_client_drill:
+            if cl_isolate in payload["funnel_drill"]:
+                for row in payload["funnel_drill"][cl_isolate].get("by_vl", []):
+                    drilled_rows_vl.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
+    
+    df_s9 = transform_to_replicated_dataframe(drilled_rows_vl)
+    if not df_s9.empty:
+        df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=False)
+    display_replicated_table(df_s9.head(top_n_drill_s9), "s9")
+
+    # 3. Client x Region Drilldown
+    st.markdown("#### Client × Region Drilldown")
+    selected_client_region = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Region)", options=["All"] + active_drill_list, default=["All"], key="s8_drill_select")
+    
+    col1, col2 = st.columns(2)
+    top_n_drill_s8 = col1.slider("Select Display Window Scale (Client × Region)", min_value=5, max_value=100, value=20, key="s8_slider")
+    sort_s8 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s8_sort")
+    
+    drilled_rows_region = []
+    if "All" in selected_client_region or not selected_client_region:
+        for c, data in payload["funnel_drill"].items():
+            for row in data["by_region"]:
+                drilled_rows_region.append({**row, "dim": f"{c} · {row['dim']}"})
+    else:
+        for cl_isolate in selected_client_region:
+            if cl_isolate in payload["funnel_drill"]:
+                for row in payload["funnel_drill"][cl_isolate].get("by_region", []):
+                    drilled_rows_region.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
+                    
+    df_s8 = transform_to_replicated_dataframe(drilled_rows_region)
+    if not df_s8.empty:
+        df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=False)
+    display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
+
+    # 4. Client x Product Type Drilldown
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    
+    col1, col2 = st.columns(2)
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    
+    drilled_rows_product = []
+    if "All" in selected_client_product or not selected_client_product:
+        for c, data in payload["funnel_drill"].items():
+            for row in data["by_product"]:
+                drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
+    else:
+        for cl_isolate in selected_client_product:
+            if cl_isolate in payload["funnel_drill"]:
+                for row in payload["funnel_drill"][cl_isolate].get("by_product", []):
+                    drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
+                    
+    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
+    if not df_s6.empty:
+        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=False)
+    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
+
+    # 5. Region x VL Drilldown
+    st.markdown("#### Region × VL Drilldown")
+    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
+    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+    
+    col1, col2 = st.columns(2)
+    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    
+    drilled_rows_region_vl = []
+    if "All" in selected_region_vl or not selected_region_vl:
+        for r, data in payload["region_drill"].items():
+            for row in data["by_vl"]:
+                drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
+    else:
+        for rg_isolate in selected_region_vl:
+            if rg_isolate in payload["region_drill"]:
+                for row in payload["region_drill"][rg_isolate].get("by_vl", []):
+                    drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
+                    
+    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
+    if not df_s11.empty:
+        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=False)
+    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 
 # ==========================================
@@ -495,7 +613,6 @@ with tab_rca:
             try:
                 endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
                 
-                # Context compression bundle mapping metrics to prompt safely
                 context_payload = {
                     "overall": fo_rca,
                     "top_growing_vls": top_growing_vls['delta'].to_dict(),
