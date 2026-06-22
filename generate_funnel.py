@@ -120,7 +120,7 @@ def apply_dimensional_filters(target_df):
             target_df = target_df[target_df['region'].isin(selected_regions)]
         if selected_vls and "All" not in selected_vls:
             target_df = target_df[target_df['vl_name'].isin(selected_vls)]
-        if selected_cls and "All" not in selected_cls:  # <-- Fixed syntax error permanently here
+        if selected_cls and "All" not in selected_cls:
             target_df = target_df[target_df['cl'].isin(selected_cls)]
         if selected_ams and "All" not in selected_ams:
             target_df = target_df[target_df['am_name'].isin(selected_ams)]
@@ -376,8 +376,8 @@ with tab_ui:
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
 # ==========================================
 with tab_rca:
-    st.markdown("## ⚙️ Blue-Collar Funnel Conversion Insights Briefing")
-    st.caption("Reviewing the conversion paths of blue-collar workers referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
+    st.markdown("## ⚙️ Funnel Conversion Insights Briefing")
+    st.caption("Reviewing the conversion paths of leads referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
     
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
@@ -398,7 +398,6 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    # Process accounts logic mappings matching volume weighted drops formulas
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
         c_name = c_obj["dim"]
@@ -462,7 +461,7 @@ with tab_rca:
             f"1. OVERALL FUNNEL SUMMARY",
             f"• {fo_rca['ls_j']/100000:.1f}L leads uploaded (Lead Share) this month down from {fo_rca['ls_m']/100000:.1f}L; {ls_drop_pct}% ▼",
             f"• Largest drop comes from ({', '.join(top_offenders)})",
-            f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh worker profiles new to client databases).",
+            f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh leads new to client databases).",
             f"",
             f"2. ATTRIBUTION DRILL-DOWN SUMMARY",
             f"• Swiggy is the highest impacted client where the VLs are moving leads from Instamart to Swiggy Food.",
@@ -483,7 +482,7 @@ with tab_rca:
                     "contents": [{
                         "parts": [{
                             "text": f"You are a Senior Data Analyst reporting directly to the CEO. Write a clean, professional, concise metric briefing based on this funnel performance data: {json.dumps(fo_rca)}. "
-                                    f"Terminology rules: LS is Lead Share (worker pool referred). Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
+                                    f"Terminology rules: LS is Lead Share (referred leads pool). Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
                                     f"Do not use complex technical terms like 'conversion velocity friction' or 'attrition models'. Keep it clear, insight-focused, and direct to the point."
                         }]
                     }]
@@ -507,23 +506,19 @@ with tab_rca:
             
             rca_bullets = []
             if fo_rca["fp_dp"] < 0:
-                rca_bullets.append(f"<li><strong>P0 First Trip Invalidation (OB ➔ FT Rate Drop):</strong> Onboarding-to-First Trip conversion efficiency dropped by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Workers successfully completed client activation profiles but dropped out before executing their first trip.</li>")
+                rca_bullets.append(f"<li><strong>First Trip Invalidation (OB ➔ FT Rate Drop):</strong> Onboarding-to-First Trip conversion efficiency dropped by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Leads successfully completed client activation profiles but dropped out before executing their first trip.</li>")
             if fo_rca["op_dp"] < 0:
-                rca_bullets.append(f"<li><strong>P1 Onboarding Disruption (Unique ➔ OB Rate Drop):</strong> Conversion from verified unique leads to successful onboarding dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
+                rca_bullets.append(f"<li><strong>Onboarding Disruption (Unique ➔ OB Rate Drop):</strong> Conversion from verified unique leads to successful onboarding dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
             if fo_rca["up_dp"] < 0:
-                rca_bullets.append(f"<li><strong>P2 Lead Penetration Loss (LS ➔ Unique Uniqueness Drop):</strong> The percentage of shared leads new to the client dropped by <strong>{abs(fo_rca['up_dp'])}pp</strong>, indicating a shrinking pool of fresh worker profiles.</li>")
+                rca_bullets.append(f"<li><strong>Lead Penetration Loss (LS ➔ Unique Uniqueness Drop):</strong> The percentage of shared leads new to the client dropped by <strong>{abs(fo_rca['up_dp'])}pp</strong>, indicating a shrinking pool of fresh leads.</li>")
             if fo_rca["ls_delta"] < 0:
-                rca_bullets.append(f"<li><strong>P3 Volume Contraction (Gross Lead Share Volume Drop):</strong> Total raw leads shared with the client decreased by <strong>{abs(fo_rca['ls_delta']):,} profiles</strong>.</li>")
+                rca_bullets.append(f"<li><strong>Volume Contraction (Gross Lead Share Volume Drop):</strong> Total raw leads shared with the client decreased by <strong>{abs(fo_rca['ls_delta']):,} leads</strong>.</li>")
                 
-            st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
+            st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)  # <-- Fixed unexpected keyword argument permanently here!
         else:
             st.success(f"🟢 **Conversion Pipeline Stable:** Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
 
-    # Secure Download Block Integration
-    st.markdown("---")
-    st.markdown("### 📥 Download Executive Briefing")
-    st.caption("Generate and download a private text compilation of the localized funnel conversion summary tailored specifically for executive-level reviews.")
-    
+    # Secure Context-Free Download Button
     st.download_button(
         label="📥 Download CEO Executive Briefing Report",
         data=generate_ceo_download_report(),
@@ -548,13 +543,13 @@ with tab_rca:
             """, unsafe_allow_html=True)
             
             if account["bottlenecks"]:
-                st.markdown("**Primary Operational Bottlenecks:**")
+                st.markdown("**Identified Local Loss Metrics:**")
                 for b in account["bottlenecks"]:
-                    icon = "🔴 **P0 CRITICAL**" if b["severity"] == "high" else "🟡 **P1 WARNING**"
+                    icon = "🔴 **CRITICAL**" if b["severity"] == "high" else "🟡 **WARNING**"
                     if b["metric"] == "Lead Share (LS) volume":
-                        st.markdown(f"{icon} **{b['metric']}:** Shared pool shrunk by **{abs(b['delta']):,} worker profiles**.")
+                        st.markdown(f"{icon} **{b['metric']}:** Shared pool shrunk by **{abs(b['delta']):,} leads**.")
                     else:
-                        st.markdown(f"{icon} **{b['metric']}:** Conversion efficiency shifted by **{b['delta_pp']}%**, causing a net leakage of **{abs(b['impact']):,} potential conversions** inside this account's workflow.")
+                        st.markdown(f"{icon} **{b['metric']}:** Conversion efficiency drifted by **{b['delta_pp']}%**, causing an absolute downstream leakage of **{abs(b['impact']):,} leads** inside this commercial loop branch.")
             
             # Re-scoping sub-aggregates to locate contributing Vahan Leader (VL) anomalies
             st.markdown("**VL Attrition Matrix (Top-3 Contributing Laggard VLs):**")
@@ -562,7 +557,6 @@ with tab_rca:
             
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
             if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
-                # Map exact Terminology column key matches to fix KeyError permanently
                 worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
                 
                 if not worst_performing_vls.empty:
