@@ -61,15 +61,15 @@ allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
 # --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 
-# Dynamic Reporting Anchor (Replaces hardcoded dates and links MTD & WTD logic)
-anchor_week = st.sidebar.selectbox("📅 Reporting Week Anchor", options=allWeeks, help="Select the reference week. MTD and WTD scope will calculate backwards from the end of this specific week.")
+# The Master Week Slicer: Shifts the entire dashboard logic backward in time flawlessly.
+anchor_week = st.sidebar.selectbox("📅 Master Week Slicer", options=allWeeks, help="Select a week to act as 'Present Day'. Both MTD and WTD scopes will calculate accurately based on this anchor.")
 operational_today = df_raw[df_raw['week'] == anchor_week]['day'].max()
 
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 
 reference_date = operational_today
 
-# Replicate exact apples-to-apples baseline boundaries based on selected anchor
+# Replicate exact apples-to-apples baseline boundaries based on Master Week Anchor
 if view_mode == "MTD (Month-to-Date)":
     curr_start = reference_date.replace(day=1)
     curr_end = reference_date
@@ -90,6 +90,7 @@ else:
 # --- Sidebar Multi-Select Slicers Suite ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔍 Funnel Filters")
+st.caption("Filters isolated segments within your selected timeframe.")
 
 selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
 selected_regions = st.sidebar.multiselect("Filter by Region", options=["All"] + allRegions, default=["All"])
@@ -100,7 +101,7 @@ selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=
 # Optional Free Tier Gemini API Key Input
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Free AI Integration")
-gemini_api_key = st.sidebar.text_input("Enter Free Gemini API Key", type="password", help="Get a completely free API key from Google AI Studio.")
+gemini_api_key = st.sidebar.text_input("Enter Free Gemini API Key", type="password", help="Paste your key here. Don't worry about trailing spaces, the code handles it.")
 
 # Generate segmented baseline dataframes
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
@@ -590,7 +591,8 @@ with tab_rca:
     if gemini_api_key:
         with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
             try:
-                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+                gemini_api_key_clean = gemini_api_key.strip()
+                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={gemini_api_key_clean}"
                 
                 context_payload = {
                     "overall": fo_rca,
@@ -610,13 +612,13 @@ with tab_rca:
                     }]
                 }
                 headers = {'Content-Type': 'application/json'}
-                llm_response = requests.post(endpoint, headers=headers, json=prompt_payload, timeout=15)
+                llm_response = requests.post(endpoint, headers=headers, json=prompt_payload, timeout=20)
                 
                 if llm_response.status_code == 200:
                     ai_text = llm_response.json()["candidates"][0]["content"]["parts"][0]["text"]
                     st.markdown(ai_text)
                 else:
-                    st.warning(f"Failed to fetch AI payload (Status {llm_response.status_code}). Defaulting to strict analytical engine.")
+                    st.warning(f"Failed to fetch AI payload (Status {llm_response.status_code}). Detail: {llm_response.text[:250]}")
                     gemini_api_key = None
             except Exception as e:
                 gemini_api_key = None
@@ -754,7 +756,8 @@ with tab_chat:
                     current_prompt_with_context = f"Data Context: {json.dumps(context_data)}\n\nUser Question: {prompt}\n\nAnswer concisely as a Data Analyst based ONLY on the provided context."
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
-                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+                    gemini_api_key_clean = gemini_api_key.strip()
+                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={gemini_api_key_clean}"
                     
                     try:
                         resp = requests.post(endpoint, headers={'Content-Type': 'application/json'}, json={"contents": gemini_history}, timeout=20)
@@ -763,6 +766,6 @@ with tab_chat:
                             message_placeholder.markdown(ai_response)
                             st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
                         else:
-                            message_placeholder.error("Error communicating with AI API. Please verify your API key.")
+                            message_placeholder.error(f"Error communicating with AI API. Status: {resp.status_code}. Detail: {resp.text[:200]}")
                     except Exception as e:
                         message_placeholder.error(f"Failed to generate response: {e}")
