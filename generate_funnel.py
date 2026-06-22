@@ -511,7 +511,7 @@ with tab_rca:
     
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
+        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
     with filter_col2:
         rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
         
@@ -528,7 +528,6 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    # Process accounts logic mappings matching volume weighted drops formulas
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
         c_name = c_obj["dim"]
@@ -548,32 +547,16 @@ with tab_rca:
         op_dp = round(op_j - op_m, 2)
         fp_dp = round(fp_j - fp_m, 2)
         
-        # Volume-weighted calculations
-        uniq_impact = round(up_dp * vj["ls"] / 100)
-        ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
-        ft_impact = round(fp_dp * vj["ob"] / 100)
-
-        b_tags = []
-        if (vj["ls"] - vm["ls"]) < 0 and abs(vj["ls"] - vm["ls"]) > (vm["ls"] * 0.1):
-            ls_pct_val = round((vj["ls"] - vm["ls"])/vm["ls"]*100, 1) if vm["ls"]>0 else 0
-            b_tags.append({"metric": "Lead Share (LS) volume", "delta": vj["ls"] - vm["ls"], "pct": ls_pct_val, "severity": "high"})
-        if up_dp <= -2.0:
-            b_tags.append({"metric": "Uniqueness conversion rate", "delta_pp": up_dp, "impact": uniq_impact, "severity": "high" if up_dp <= -5.0 else "medium"})
-        if op_dp <= -2.0:
-            b_tags.append({"metric": "Onboarding (OB) activation rate", "delta_pp": op_dp, "impact": ob_impact, "severity": "high" if op_dp <= -5.0 else "medium"})
-        if fp_dp <= -2.0:
-            b_tags.append({"metric": "First Trip (FT) conversion rate", "delta_pp": fp_dp, "impact": ft_impact, "severity": "high" if fp_dp <= -5.0 else "medium"})
-
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_dp": up_dp, "op_j": op_j, "op_dp": op_dp, "fp_j": fp_j, "fp_dp": fp_dp,
-            "uniq_impact": uniq_impact, "ob_impact": ob_impact, "ft_impact": ft_impact, "bottlenecks": b_tags
+            "up_j": up_j, "up_m": up_m, "up_dp": up_dp, 
+            "op_j": op_j, "op_m": op_m, "op_dp": op_dp, 
+            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": fp_dp
         })
 
-    laggard_accounts = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
-    laggard_accounts.sort(key=lambda x: x["ft_abs"])
+    laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
+    laggard_clients.sort(key=lambda x: x["ft_abs"])
 
-    # Extract top 5 growing and top 5 degrowing VL slices via absolute change math loops
     vl_rca_c = df_rca_curr.groupby('vl_name')['ft'].sum()
     vl_rca_p = df_rca_prev.groupby('vl_name')['ft'].sum()
     vl_rca_m = pd.DataFrame({'curr': vl_rca_c, 'prev': vl_rca_p}).fillna(0)
@@ -582,14 +565,12 @@ with tab_rca:
     top_growing_vls = vl_rca_m.sort_values(by='delta', ascending=False).head(5)
     top_degrowing_vls = vl_rca_m.sort_values(by='delta', ascending=True).head(5)
 
-    # --- Secure Download Report Builder Block (Hidden on main screen) ---
     def generate_ceo_download_report():
         ls_drop_pct = abs(round((fo_rca["ls_delta"] / fo_rca["ls_m"] * 100), 1)) if fo_rca["ls_m"] > 0 else 0
-        
         client_ls_drops = []
-        for a in client_funnels_compiled:
-            if a["ls_delta"] < 0:
-                client_ls_drops.append((a["name"], abs(a["ls_delta"])))
+        for c in client_funnels_compiled:
+            if c["ls_delta"] < 0:
+                client_ls_drops.append((c["name"], abs(c["ls_delta"])))
         client_ls_drops.sort(key=lambda x: x[1], reverse=True)
         top_offenders = [f"{name} - {val/100000:.1f}L" for name, val in client_ls_drops[:3]]
         
@@ -612,7 +593,6 @@ with tab_rca:
 
     st.markdown("### A. Overall Funnel Summary")
     
-    # Check if a free Gemini key was supplied to override the rule-based output with live LLM intelligence
     if gemini_api_key:
         with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
             try:
@@ -622,7 +602,7 @@ with tab_rca:
                     "overall": fo_rca,
                     "top_growing_vls": top_growing_vls['delta'].to_dict(),
                     "top_degrowing_vls": top_degrowing_vls['delta'].to_dict(),
-                    "laggard_accounts_volume": [(a["name"], a["ft_abs"]) for a in laggard_accounts]
+                    "laggard_clients_volume": [(c["name"], c["ft_abs"]) for c in laggard_clients]
                 }
                 
                 prompt_payload = {
@@ -631,7 +611,7 @@ with tab_rca:
                             "text": f"You are a Senior Data Analyst reporting directly to the CEO. Write a clean, professional, concise metric conversion narrative briefing based on this comprehensive snapshot: {json.dumps(context_payload)}. "
                                     f"Terminology rules: LS is Lead Share (referred leads pool). Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
                                     f"Work backward down the funnel steps from FT to explain why changes happened and pinpoint whether specific Clients, VLs, Regions, CLs, or AMs originated the shift. "
-                                    f"Do not use complex technical terms like 'conversion velocity friction' or harsh keywords like 'critical'. Keep it clear, supportive, and completely direct to the point."
+                                    f"Do not use complex technical terms or harsh keywords. Keep it clear, supportive, and completely direct to the point."
                         }]
                     }]
                 }
@@ -647,14 +627,13 @@ with tab_rca:
             except Exception:
                 gemini_api_key = None
 
-    # Deterministic Analytical Engine Fallback (With executive color text injection)
     if not gemini_api_key:
         if fo_rca["ft_delta"] < 0:
             st.markdown(f"### :red[Conversion Deficit:] Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
             
             rca_bullets = []
             if fo_rca["fp_dp"] < 0:
-                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion efficiency dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span> (from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Leads successfully completed activation profiles but dropped out before executing their first trip.</li>")
+                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span> (from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Leads successfully completed activation profiles but dropped out before executing their first trip.</li>")
             if fo_rca["op_dp"] < 0:
                 rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion from unique leads to onboarding activation dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
             if fo_rca["up_dp"] < 0:
@@ -666,7 +645,6 @@ with tab_rca:
         else:
             st.markdown(f"### :green[Conversion Pipeline Stable:] Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
 
-    # Context-Free Minimalist Download Action Button
     st.download_button(
         label="📥",
         data=generate_ceo_download_report(),
@@ -674,7 +652,6 @@ with tab_rca:
         mime="text/plain"
     )
 
-    # --- Replicated Top / Bottom Trend Cards Layout ---
     st.markdown("---")
     st.markdown("### Vahan Leader (VL Grain) Performance Standouts")
     growth_col1, growth_col2 = st.columns(2)
@@ -694,39 +671,42 @@ with tab_rca:
     st.markdown("---")
     st.markdown("### B. Drill-down Summary")
     
-    if not laggard_accounts:
+    if not laggard_clients:
         st.info("No deficit vectors logged across business channels matching current tracking parameters.")
     else:
-        for account in laggard_accounts:
+        for client in laggard_clients:
             st.markdown(f"""
             <div style='background: #ffffff !important; border: 0.5px solid rgba(0,0,0,0.08); border-left: 4px solid #e05252; border-radius: 8px; padding: 12px; margin-bottom: 12px;'>
                 <div style='display:flex; justify-content: space-between; align-items: center;'>
-                    <span style='font-size:13px; font-weight:600; color: #111111 !important;'>{account['name'].upper()}</span>
-                    <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} First Trips (FT) Variance Loss</span>
+                    <span style='font-size:13px; font-weight:600; color: #111111 !important;'>{client['name'].upper()}</span>
+                    <span style='color: #e05252 !important; font-weight: 600;'>{client['ft_abs']:,} First Trips (FT) Variance Loss</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
-            if account["bottlenecks"]:
-                st.markdown("**Identified Local Loss Metrics:**")
-                for b in account["bottlenecks"]:
-                    if b["metric"] == "Lead Share (LS) volume":
-                        st.markdown(f"⚠️ **{b['metric']}:** Shared pool shrunk by :red[{abs(b['delta']):,}] leads.")
-                    else:
-                        st.markdown(f"⚠️ **{b['metric']}:** Conversion efficiency drifted by :red[{b['delta_pp']}%], causing a net leakage of :red[{abs(b['impact']):,}] leads inside this account's workflow branch.")
+            client_bullets = []
+            if client["fp_dp"] < 0:
+                client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion efficiency dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_m']:.1f}% to {client['fp_j']:.1f}%). Leads successfully completed activation profiles but dropped out before executing their first trip.</li>")
+            if client["op_dp"] < 0:
+                client_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion from unique leads to onboarding activation dropped by <span class='dn'>{abs(client['op_dp'])}pp</span> (from {client['op_m']:.1f}% to {client['op_j']:.1f}%).</li>")
+            if client["up_dp"] < 0:
+                client_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Unique lead penetration dropped by <span class='dn'>{abs(client['up_dp'])}pp</span> (from {client['up_m']:.1f}% to {client['up_j']:.1f}%), indicating a shrinking pool of fresh leads.</li>")
+            if client["ls_delta"] < 0:
+                client_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(client['ls_delta']):,} leads</span>.</li>")
             
-            # Re-scoping sub-aggregates to locate contributing Vahan Leader (VL) anomalies
-            st.markdown("**VL Attrition Matrix (Top-3 Contributing Laggard VLs):**")
-            vl_drill_source = payload_rca["funnel_drill"].get(account["name"], {}).get("by_vl", [])
+            if client_bullets:
+                st.markdown(f"<ul>{''.join(client_bullets)}</ul>", unsafe_allow_html=True)
             
+            vl_drill_source = payload_rca["funnel_drill"].get(client["name"], {}).get("by_vl", [])
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
             if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
                 worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
-                
                 if not worst_performing_vls.empty:
+                    st.markdown("**Top-3 Contributing Laggard VLs:**")
                     for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of :red[{abs(v_row['FT Δ'])}] Completed First Trips (Jun: {v_row['FT (First Trip) Jun']} vs Baseline: {v_row['FT (First Trip) May']})")
+                        st.markdown(f"- 📉 Laggard **{v_row['Dimension']}**: Net Deficit of :red[{abs(v_row['FT Δ'])}] Completed First Trips (Jun: {v_row['FT (First Trip) Jun']} vs Baseline: {v_row['FT (First Trip) May']})")
                 else:
                     st.caption("Friction normalized across channels; no distinct field leader anomalies registered.")
             else:
                 st.caption("No operational VL network tags mapped to this filtered data space footprint.")
+            st.markdown("<br>", unsafe_allow_html=True)
