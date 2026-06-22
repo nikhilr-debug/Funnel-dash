@@ -57,12 +57,12 @@ allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
 allWeeks = sorted(list(df_raw['week'].dropna().unique()))
 
-# --- 3. Sidebar Filter Panel Architecture ---
+# --- 3. Sidebar Timeframe Configuration Engine ---
 st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding processing clock to June 2026 reporting frame
+# Grounding processing clock to June 2026 reporting frame context
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -91,7 +91,7 @@ else:
 
 # --- Dynamic Interactive Filters Suite ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 Funnel Filters")
+st.sidebar.subheader("🔍 Funnel Multi-Select Filters")
 
 selected_weeks = st.sidebar.multiselect("Filter by Specific Week", options=["All"] + allWeeks, default=["All"])
 selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
@@ -124,12 +124,10 @@ def apply_dimensional_filters(target_df):
 df_curr = apply_dimensional_filters(df_curr)
 df_prev = apply_dimensional_filters(df_prev)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Active Constraints Window")
-st.sidebar.caption(f"**Current Window:**\n`{curr_start}` ➔ `{curr_end}`")
-st.sidebar.caption(f"**Prior Period Window:**\n`{prev_start}` ➔ `{prev_end}`")
+# --- 4. Executive Top-Banner Component ---
+st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
-# --- 4. Core Metrics Analytics Processing Engine ---
+# --- 5. Core Metrics Analytics Processing Engine ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     
@@ -183,7 +181,7 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 5. High-Contrast Render Pipeline ---
+# --- 6. High-Contrast Render Pipeline (With Native JS Column Sorter) ---
 def get_colored_delta(v, suffix=""):
     if v is None: return "—"
     if v == 0: return f"0{suffix}"
@@ -237,7 +235,7 @@ def transform_to_replicated_dataframe(rows_list):
 
 def display_replicated_table(df, key_prefix):
     if df.empty:
-        st.write("No operational entries found for this segment.")
+        st.write("No rows match the specified criteria.")
         return
         
     ordered_cols = [
@@ -247,7 +245,7 @@ def display_replicated_table(df, key_prefix):
     ]
     df = df[ordered_cols].copy()
     
-    formatted_html = "<table><thead><tr>" + "".join([f"<th>{col}</th>" for col in ordered_cols]) + "</tr></thead><tbody>"
+    formatted_html = f"<table id='table_{key_prefix}'><thead><tr>" + "".join([f"<th>{col} ↕</th>" for col in ordered_cols]) + "</tr></thead><tbody>"
     
     for _, r in df.iterrows():
         formatted_html += "<tr>"
@@ -275,11 +273,14 @@ def display_replicated_table(df, key_prefix):
         formatted_html += "</tr>"
         
     formatted_html += "</tbody></table>"
+    
+    # Embedded Vanilla JS Sorter script
     st.components.v1.html(f"""
     <style>
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
         table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
-        th {{ text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; }}
+        th {{ text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; cursor: pointer; user-select: none; }}
+        th:hover {{ background: #eceae4 !important; color: #111111 !important; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; }}
         tr:hover td {{ background: #f7f6f3 !important; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
@@ -292,19 +293,37 @@ def display_replicated_table(df, key_prefix):
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
     </style>
     {formatted_html}
+    <script>
+    document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
+        const table = th.closest('table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const index = Array.from(th.parentNode.children).indexOf(th);
+        const asc = th.dataset.asc = !th.dataset.asc;
+        
+        rows.sort((rowA, rowB) => {{
+            let cellA = rowA.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
+            let cellB = rowB.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
+            const numA = parseFloat(cellA);
+            const numB = parseFloat(cellB);
+            if (!isNaN(numA) && !isNaN(numB)) return asc ? numA - numB : numB - numA;
+            return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+        }});
+        tbody.append(...rows);
+    }})));
+    </script>
     """, height=max(140, len(df)*32 + 50), scrolling=True)
 
-# --- 6. Nav Tabs Core Implementation ---
+# --- 7. Layout Nav Tabs Initialization ---
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
-# RENDER TAB: EXECUTIVE REPLICATED FUNNEL
+# RENDER SCOPE: FUNNEL VIEW METRICS ENGINE
 # ==========================================
 with tab_ui:
-    st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
+    st.markdown("### Overall funnel — Jun vs May")
     fo = payload["overall_funnel"]
     
-    # Theme-Isolated KPI Blocks
     st.components.v1.html(f"""
     <style>
         body {{ background-color: transparent; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
@@ -316,10 +335,10 @@ with tab_ui:
         .up {{ color: #4a9e2f; font-weight: 600; }} .dn {{ color: #e05252; font-weight: 600; }}
     </style>
     <div class="row">
-        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS (Ingress Pool)</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique Filters</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">Placements (FT)</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS</div><div class="sub">May: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique</div><div class="sub">May: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">OB</div><div class="sub">May: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">FT</div><div class="sub">May: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
     </div>
     """, height=115)
 
@@ -353,7 +372,7 @@ with tab_ui:
 
 
 # ==========================================
-# RENDER SCOPE: STRATEGIC EX-SUMMARY (RCA)
+# RENDER SCOPE: EX-SUMMARY TAB (RCA ENGINE)
 # ==========================================
 with tab_rca:
     st.markdown("## ⚙️ Strategic Root Cause Analysis — Volume-Weighted Impact Models")
@@ -378,9 +397,9 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    st.markdown("### A. Macro Pipeline Volume Attrition Analysis")
+    st.markdown("### A. Overall view")
     if fo_rca["ft_delta"] < 0:
-        st.error(f"🚨 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
+        st.error(f"🔴 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
         
         rca_bullets = []
         if fo_rca["fp_dp"] < 0:
