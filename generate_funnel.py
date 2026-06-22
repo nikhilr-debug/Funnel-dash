@@ -385,17 +385,18 @@ with tab_ui:
     st.markdown("#### Region Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    # ----- DYNAMIC TOP N DRILLDOWNS WITH SORT SELECTORS -----
+    # ----- DYNAMIC TOP N DRILLDOWNS WITH SORT SELECTORS AND TREND VIEW -----
     
     # 1. VL Cut
     st.markdown("#### VL Cut — Configurable Volume Scan")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
     sort_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s5_sort")
+    order_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s5_order")
     
     df_s5 = transform_to_replicated_dataframe(payload["by_vl"])
     if not df_s5.empty:
-        df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=False)
+        df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s5.head(top_n_vl), "s5")
 
     # 2. Client x VL Drilldown
@@ -403,9 +404,10 @@ with tab_ui:
     active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
     selected_client_drill = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_drill_list, default=["All"], key="s9_drill_select")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s9 = col1.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20, key="s9_slider")
     sort_s9 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s9_sort")
+    order_s9 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s9_order")
     
     drilled_rows_vl = []
     if "All" in selected_client_drill or not selected_client_drill:
@@ -420,16 +422,17 @@ with tab_ui:
     
     df_s9 = transform_to_replicated_dataframe(drilled_rows_vl)
     if not df_s9.empty:
-        df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=False)
+        df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s9.head(top_n_drill_s9), "s9")
 
     # 3. Client x Region Drilldown
     st.markdown("#### Client × Region Drilldown")
     selected_client_region = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Region)", options=["All"] + active_drill_list, default=["All"], key="s8_drill_select")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s8 = col1.slider("Select Display Window Scale (Client × Region)", min_value=5, max_value=100, value=20, key="s8_slider")
     sort_s8 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s8_sort")
+    order_s8 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s8_order")
     
     drilled_rows_region = []
     if "All" in selected_client_region or not selected_client_region:
@@ -444,16 +447,17 @@ with tab_ui:
                     
     df_s8 = transform_to_replicated_dataframe(drilled_rows_region)
     if not df_s8.empty:
-        df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=False)
+        df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
 
     # 4. Client x Product Type Drilldown
     st.markdown("#### Client × Product Type Drilldown")
     selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
     sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
     
     drilled_rows_product = []
     if "All" in selected_client_product or not selected_client_product:
@@ -468,7 +472,7 @@ with tab_ui:
                     
     df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
     if not df_s6.empty:
-        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=False)
+        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
 
     # 5. Region x VL Drilldown
@@ -476,9 +480,10 @@ with tab_ui:
     active_region_list = sorted(list(df_curr['region'].dropna().unique()))
     selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
     sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
     
     drilled_rows_region_vl = []
     if "All" in selected_region_vl or not selected_region_vl:
@@ -493,7 +498,7 @@ with tab_ui:
                     
     df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
     if not df_s11.empty:
-        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=False)
+        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 
@@ -649,7 +654,7 @@ with tab_rca:
             
             rca_bullets = []
             if fo_rca["fp_dp"] < 0:
-                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span> (from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Leads successfully completed activation profiles but dropped out before executing their first trip.</li>")
+                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion efficiency dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span> (from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Leads successfully completed activation profiles but dropped out before executing their first trip.</li>")
             if fo_rca["op_dp"] < 0:
                 rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion from unique leads to onboarding activation dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
             if fo_rca["up_dp"] < 0:
