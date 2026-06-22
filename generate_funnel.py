@@ -5,7 +5,7 @@ import json
 from datetime import date, timedelta
 
 # --- Executive Dashboard Configuration ---
-st.set_page_config(page_title="Executive Funnel Review & Conversion RCA", layout="wide")
+st.set_page_config(page_title="Executive Funnel Review & Conversion Insights", layout="wide")
 
 # Global High-Contrast Styling Tokens (Guarantees absolute text visibility across light and dark user themes)
 st.markdown("""
@@ -120,7 +120,7 @@ def apply_dimensional_filters(target_df):
             target_df = target_df[target_df['region'].isin(selected_regions)]
         if selected_vls and "All" not in selected_vls:
             target_df = target_df[target_df['vl_name'].isin(selected_vls)]
-        if selected_cls and "All" not in selected_cls:
+        if selected_cls wilderness and "All" not in selected_cls:
             target_df = target_df[target_df['cl'].isin(selected_cls)]
         if selected_ams and "All" not in selected_ams:
             target_df = target_df[target_df['am_name'].isin(selected_ams)]
@@ -315,14 +315,14 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 9. Layout Nav Tabs Initialization (Fixed Placement Order) ---
+# --- 9. Layout Nav Tabs Initialization (Fixed Parse Sequence) ---
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
-# RENDER SCOPE: FUNNEL VIEW METRICS ENGINE
+# RENDER TAB: EXECUTIVE REPLICATED FUNNEL
 # ==========================================
 with tab_ui:
-    st.markdown("### Overall funnel — Jun vs May")
+    st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
     fo = payload["overall_funnel"]
     
     st.iframe(f"""
@@ -502,7 +502,7 @@ with tab_rca:
                     <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} First Trips (FT) Variance Loss</span>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)  # <-- Fixed unsafe_allow_html applied correctly
             
             if account["bottlenecks"]:
                 st.markdown("**Primary Operational Bottlenecks:**")
@@ -523,7 +523,7 @@ with tab_rca:
                 
                 if not worst_performing_vls.empty:
                     for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Completed First Trips** (Jun: {v_row['FT Jun']} vs Baseline: {v_row['FT May']})")
+                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Completed First Trips** (Jun: {v_row['FT (First Trip) Jun']} vs Baseline: {v_row['FT (First Trip) May']})")  # <-- Fixed exact column key matches here
                 else:
                     st.caption("Friction normalized across channels; no distinct field leader anomalies registered.")
             else:
