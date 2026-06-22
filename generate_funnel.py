@@ -56,23 +56,20 @@ allRegions = sorted(list(df_raw['region'].dropna().unique()))
 allVLs = sorted(list(df_raw['vl_name'].dropna().unique()))
 allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
-allWeeks = sorted(list(df_raw['week'].dropna().unique()))
+allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
 
 # --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
+
+# Dynamic Reporting Anchor (Replaces hardcoded dates and links MTD & WTD logic)
+anchor_week = st.sidebar.selectbox("📅 Reporting Week Anchor", options=allWeeks, help="Select the reference week. MTD and WTD scope will calculate backwards from the end of this specific week.")
+operational_today = df_raw[df_raw['week'] == anchor_week]['day'].max()
+
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
-exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding processing clock to 2026 analytical target frame context
-operational_today = date(2026, 6, 22)
+reference_date = operational_today
 
-if exclude_incomplete:
-    days_to_subtract = operational_today.weekday() + 1
-    reference_date = operational_today - timedelta(days=days_to_subtract)
-else:
-    reference_date = operational_today
-
-# Replicate exact apples-to-apples baseline boundaries
+# Replicate exact apples-to-apples baseline boundaries based on selected anchor
 if view_mode == "MTD (Month-to-Date)":
     curr_start = reference_date.replace(day=1)
     curr_end = reference_date
@@ -94,7 +91,6 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔍 Funnel Filters")
 
-selected_weeks = st.sidebar.multiselect("Filter by Specific Week (Applies to both MTD & WTD)", options=["All"] + allWeeks, default=["All"])
 selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
 selected_regions = st.sidebar.multiselect("Filter by Region", options=["All"] + allRegions, default=["All"])
 selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["All"] + allVLs, default=["All"])
@@ -112,8 +108,6 @@ df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
 
 def apply_dimensional_filters(target_df):
     if not target_df.empty:
-        if selected_weeks and "All" not in selected_weeks:
-            target_df = target_df[target_df['week'].isin(selected_weeks)]
         if selected_clients and "All" not in selected_clients:
             target_df = target_df[target_df['client'].isin(selected_clients)]
         if selected_regions and "All" not in selected_regions:
@@ -511,7 +505,7 @@ with tab_rca:
     
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
+        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
     with filter_col2:
         rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
         
@@ -600,9 +594,9 @@ with tab_rca:
                 
                 context_payload = {
                     "overall": fo_rca,
-                    "top_growing_vls": top_growing_vls['delta'].to_dict(),
-                    "top_degrowing_vls": top_degrowing_vls['delta'].to_dict(),
-                    "laggard_clients_volume": [(c["name"], c["ft_abs"]) for c in laggard_clients]
+                    "top_growing_vls": {str(k): int(v) for k, v in top_growing_vls['delta'].items()},
+                    "top_degrowing_vls": {str(k): int(v) for k, v in top_degrowing_vls['delta'].items()},
+                    "laggard_clients_volume": [(str(c["name"]), int(c["ft_abs"])) for c in laggard_clients]
                 }
                 
                 prompt_payload = {
@@ -622,9 +616,9 @@ with tab_rca:
                     ai_text = llm_response.json()["candidates"][0]["content"]["parts"][0]["text"]
                     st.markdown(ai_text)
                 else:
-                    st.warning("Failed to fetch custom Gemini text payload. Defaulting to strict analytical engine.")
+                    st.warning(f"Failed to fetch AI payload (Status {llm_response.status_code}). Defaulting to strict analytical engine.")
                     gemini_api_key = None
-            except Exception:
+            except Exception as e:
                 gemini_api_key = None
 
     if not gemini_api_key:
@@ -745,9 +739,9 @@ with tab_chat:
                     # Create data context for the AI
                     context_data = {
                         "overall_performance": payload["overall_funnel"],
-                        "top_5_growing_vls": top_growing_vls['delta'].to_dict(),
-                        "top_5_degrowing_vls": top_degrowing_vls['delta'].to_dict(),
-                        "laggard_clients_overview": [(c["name"], c["ft_abs"]) for c in laggard_clients]
+                        "top_5_growing_vls": {str(k): int(v) for k, v in top_growing_vls['delta'].items()},
+                        "top_5_degrowing_vls": {str(k): int(v) for k, v in top_degrowing_vls['delta'].items()},
+                        "laggard_clients_overview": [(str(c["name"]), int(c["ft_abs"])) for c in laggard_clients]
                     }
                     
                     # Build chat history array format for Gemini API
