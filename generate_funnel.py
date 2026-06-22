@@ -4,9 +4,9 @@ import requests
 from datetime import date, timedelta
 
 # --- Executive Dashboard Configuration ---
-st.set_page_config(page_title="Executive Funnel Review & Core RCA", layout="wide")
+st.set_page_config(page_title="Executive Funnel Review & Conversion RCA", layout="wide")
 
-# Global High-Contrast Styling Tokens (Guarantees absolute text visibility across all system theme settings)
+# Global High-Contrast Styling Tokens (Guarantees absolute text visibility across light and dark user themes)
 st.markdown("""
 <style>
     .up { color: #4a9e2f !important; font-weight: 600; }
@@ -22,7 +22,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 1. Live API Data Fetching Engine ---
-@st.cache_data(ttl=1800)  # Cached for 30 minutes to shield endpoint thresholds
+@st.cache_data(ttl=1800)  # 30-minute cache to safeguard Redash endpoint performance
 def fetch_and_compile_data():
     api_url = "https://redash.vahan.link/api/queries/17631/results.json"
     api_key = "4aFm2iOoyx8I91svQccdeZr0jmaiUsMFSRinZcmu"
@@ -39,10 +39,10 @@ def fetch_and_compile_data():
 df_raw = fetch_and_compile_data()
 
 if df_raw.empty:
-    st.error("Data pipeline is empty. Verify Redash query execution space state.")
+    st.error("Data pipeline is empty. Please verify query execution state on Redash.")
     st.stop()
 
-# Clean dates and metrics configuration
+# Force clean, concrete numeric types across core funnel indicators
 df_raw['day'] = pd.to_datetime(df_raw['day']).dt.date
 df_raw['week'] = pd.to_datetime(df_raw['week']).dt.date
 for col in ['ls', 'uniq', 'ob', 'ft']:
@@ -57,12 +57,12 @@ allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
 allWeeks = sorted(list(df_raw['week'].dropna().unique()))
 
-# --- 3. Sidebar Filter Panel Slicing Options ---
+# --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Fixed relative timeline reference anchor (June 2026 Reporting Window)
+# Grounding reporting clock to 2026 analytical target frame
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -71,7 +71,7 @@ if exclude_incomplete:
 else:
     reference_date = operational_today
 
-# Replicate exact apples-to-apples baseline bounds
+# Replicate exact apples-to-apples baseline boundaries
 if view_mode == "MTD (Month-to-Date)":
     curr_start = reference_date.replace(day=1)
     curr_end = reference_date
@@ -89,22 +89,21 @@ else:
     prev_start = curr_start - timedelta(days=7)
     prev_end = curr_end - timedelta(days=7)
 
-# --- Dynamic Interactive Filters Suite ---
+# --- Sidebar Multi-Select Slicers Suite ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔍 Funnel Multi-Select Filters")
+st.sidebar.subheader("🔍 Funnel Filters")
 
 selected_weeks = st.sidebar.multiselect("Filter by Specific Week", options=["All"] + allWeeks, default=["All"])
 selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
 selected_regions = st.sidebar.multiselect("Filter by Region", options=["All"] + allRegions, default=["All"])
-selected_vls = st.sidebar.multiselect("Filter by Vendor Lead (VL)", options=["All"] + allVLs, default=["All"])
+selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["All"] + allVLs, default=["All"])
 selected_cls = st.sidebar.multiselect("Filter by Core Leader (CL)", options=["All"] + allCLs, default=["All"])
 selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=["All"] + allAMs, default=["All"])
 
-# Slice primary operational time bounds
+# Generate segmented baseline dataframes
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
 df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
 
-# Apply multi-select dimension logic evenly across both frames to protect historical comparison mapping
 def apply_dimensional_filters(target_df):
     if not target_df.empty:
         if selected_weeks and "All" not in selected_weeks:
@@ -127,7 +126,7 @@ df_prev = apply_dimensional_filters(df_prev)
 # --- 4. Executive Top-Banner Component ---
 st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
-# --- 5. Global Core Data Transformers & Sorters (Resolves NameError) ---
+# --- 5. Data Sorters & Transformers (Strict Parsing Order) ---
 def get_colored_delta(v, suffix=""):
     if v is None: return "—"
     if v == 0: return f"0{suffix}"
@@ -169,24 +168,24 @@ def transform_to_replicated_dataframe(rows_list):
 
         processed.append({
             "Dimension": r["dim"],
-            "LS Jun": vj["ls"], "LS May": vm["ls"], "LS Δ": vj["ls"] - vm["ls"], "LS Δ%": round(((vj["ls"] - vm["ls"]) / vm["ls"] * 100), 1) if vm["ls"] > 0 else None,
-            "Uniq Jun": vj["uniqueness"], "Uniq May": vm["uniqueness"], "Uniq Δ": vj["uniqueness"] - vm["uniqueness"],
+            "LS (Lead Share) Jun": vj["ls"], "LS (Lead Share) May": vm["ls"], "LS Δ": vj["ls"] - vm["ls"], "LS Δ%": round(((vj["ls"] - vm["ls"]) / vm["ls"] * 100), 1) if vm["ls"] > 0 else None,
+            "Unique Jun": vj["uniqueness"], "Unique May": vm["uniqueness"], "Unique Δ": vj["uniqueness"] - vm["uniqueness"],
             "Uniq%": up_j, "Uniq Δpp": round(up_j - up_m, 2),
-            "OB Jun": vj["ob"], "OB May": vm["ob"], "OB Δ": vj["ob"] - vm["ob"],
+            "OB (Onboarded) Jun": vj["ob"], "OB (Onboarded) May": vm["ob"], "OB Δ": vj["ob"] - vm["ob"],
             "OB%": op_j, "OB Δpp": round(op_j - op_m, 2),
-            "FT Jun": vj["ft"], "FT May": vm["ft"], "FT Δ": vj["ft"] - vm["ft"], "FT Δ%": round(((vj["ft"] - vm["ft"]) / vm["ft"] * 100), 1) if vm["ft"] > 0 else None,
+            "FT (First Trip) Jun": vj["ft"], "FT (First Trip) May": vm["ft"], "FT Δ": vj["ft"] - vm["ft"], "FT Δ%": round(((vj["ft"] - vm["ft"]) / vm["ft"] * 100), 1) if vm["ft"] > 0 else None,
             "FT/OB%": fp_j, "FT/OB Δpp": round(fp_j - fp_m, 2)
         })
     return pd.DataFrame(processed)
 
 def display_replicated_table(df, key_prefix):
     if df.empty:
-        st.write("No matching metric rows found for this cross-section.")
+        st.write("No metrics matching active filter states.")
         return
         
     ordered_cols = [
-        "Dimension", "LS Jun", "LS May", "LS Δ", "LS Δ%", "Uniq Jun", "Uniq May", "Uniq Δ",
-        "Uniq%", "Uniq Δpp", "OB Jun", "OB May", "OB Δ", "OB%", "OB Δpp", "FT Jun", "FT May",
+        "Dimension", "LS (Lead Share) Jun", "LS (Lead Share) May", "LS Δ", "LS Δ%", "Unique Jun", "Unique May", "Unique Δ",
+        "Uniq%", "Uniq Δpp", "OB (Onboarded) Jun", "OB (Onboarded) May", "OB Δ", "OB%", "OB Δpp", "FT (First Trip) Jun", "FT (First Trip) May",
         "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp"
     ]
     df = df[ordered_cols].copy()
@@ -196,22 +195,22 @@ def display_replicated_table(df, key_prefix):
     for _, r in df.iterrows():
         formatted_html += "<tr>"
         formatted_html += f"<td class='bold'>{r['Dimension']}</td>"
-        formatted_html += f"<td>{r['LS Jun']:,}</td>"
-        formatted_html += f"<td class='fl'>{r['LS May']:,}</td>"
+        formatted_html += f"<td>{r['LS (Lead Share) Jun']:,}</td>"
+        formatted_html += f"<td class='fl'>{r['LS (Lead Share) May']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
-        formatted_html += f"<td>{r['Uniq Jun']:,}</td>"
-        formatted_html += f"<td class='fl'>{r['Uniq May']:,}</td>"
-        formatted_html += f"<td>{get_colored_delta(r['Uniq Δ'])}</td>"
+        formatted_html += f"<td>{r['Unique Jun']:,}</td>"
+        formatted_html += f"<td class='fl'>{r['Unique May']:,}</td>"
+        formatted_html += f"<td>{get_colored_delta(r['Unique Δ'])}</td>"
         formatted_html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['Uniq Δpp'], 'pp')}</td>"
-        formatted_html += f"<td>{r['OB Jun']:,}</td>"
-        formatted_html += f"<td class='fl'>{r['OB May']:,}</td>"
+        formatted_html += f"<td>{r['OB (Onboarded) Jun']:,}</td>"
+        formatted_html += f"<td class='fl'>{r['OB (Onboarded) May']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δ'])}</td>"
         formatted_html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δpp'], 'pp')}</td>"
-        formatted_html += f"<td class='bold'>{r['FT Jun']:,}</td>"
-        formatted_html += f"<td class='fl'>{r['FT May']:,}</td>"
+        formatted_html += f"<td class='bold'>{r['FT (First Trip) Jun']:,}</td>"
+        formatted_html += f"<td class='fl'>{r['FT (First Trip) May']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
         formatted_html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
@@ -220,7 +219,6 @@ def display_replicated_table(df, key_prefix):
         
     formatted_html += "</tbody></table>"
     
-    # Executing deprecated-proof static web views using structural scripts
     st.iframe(f"""
     <style>
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
@@ -260,7 +258,7 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- 6. Analytics Processing Engine Rollups ---
+# --- 7. Metrics Object Payload Compiler ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
@@ -311,14 +309,11 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 7. Layout Nav Tabs Initialization ---
-tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
-
 # ==========================================
-# RENDER SCOPE: FUNNEL VIEW METRICS ENGINE
+# RENDER SCOPE: CORE CONVERSION VIEWS
 # ==========================================
 with tab_ui:
-    st.markdown("### Overall funnel — Jun vs May")
+    st.markdown("### Overall Funnel Conversion Checkpoints")
     fo = payload["overall_funnel"]
     
     st.iframe(f"""
@@ -332,23 +327,23 @@ with tab_ui:
         .up {{ color: #4a9e2f; font-weight: 600; }} .dn {{ color: #e05252; font-weight: 600; }}
     </style>
     <div class="row">
-        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">OB</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">FT</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">Lead Share (LS)</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique to Client</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">First Trips (FT)</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
     </div>
     """, height=115)
 
-    st.markdown("#### Client cut")
+    st.markdown("#### Client Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
 
-    st.markdown("#### Product type cut")
+    st.markdown("#### Product Type Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
 
-    st.markdown("#### Region cut")
+    st.markdown("#### Region Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    st.markdown("#### VL cut — Configurable Volume Scan")
+    st.markdown("#### VL Cut — Configurable Volume Scan")
     top_n_vl = st.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20)
     display_replicated_table(transform_to_replicated_dataframe(payload["by_vl"]).head(top_n_vl), "s5")
 
@@ -369,18 +364,12 @@ with tab_ui:
 
 
 # ==========================================
-# WINDOW PANEL: PRIORITIZED CONTEXTUAL RCA
+# RENDER SCOPE: CLEAN REPLICATED AI summary
 # ==========================================
 with tab_rca:
-    st.markdown("## ⚙️ Strategic Root Cause Analysis — Volume-Weighted Impact Models")
+    st.markdown("## ⚙️ Blue-Collar Funnel Conversion Diagnostics")
+    st.caption("Reviewing the conversion paths of blue-collar workers referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
     
-    # Context Selection Engine to filter down localized accounts or geo-spaces interactive models
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
-    with filter_col2:
-        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
-        
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
@@ -394,26 +383,26 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    st.markdown("### A. Macro Pipeline Volume Attrition Analysis")
+    st.markdown("### A. Overall Funnel Summary")
     if fo_rca["ft_delta"] < 0:
-        st.error(f"🚨 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
+        st.error(f"🔴 **Conversion Deficit:** Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
         
         rca_bullets = []
         if fo_rca["fp_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P0 Conversion Velocity Friction (OB ➔ FT):</strong> Deployment conversion efficiency contracted by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (slipped from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Documented profiles are reaching full validation parameters but default before scheduling their first assignment.</li>")
+            rca_bullets.append(f"<li><strong>P0 First Trip Invalidation (OB ➔ FT Rate Drop):</strong> Onboarding-to-First Trip conversion efficiency dropped by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Workers successfully completed client activation profiles but dropped out before executing their first trip.</li>")
         if fo_rca["op_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P1 Onboarding Pipeline Friction (Unique ➔ OB):</strong> Sourcing-to-Profile verification completion dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
+            rca_bullets.append(f"<li><strong>P1 Onboarding Disruption (Unique ➔ OB Rate Drop):</strong> Conversion from verified unique leads to successful onboarding dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
         if fo_rca["up_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P2 Sourcing Invalidation Contamination (LS ➔ Unique):</strong> Unique entry verification rates degraded by <strong>{abs(fo_rca['up_dp'])}pp</strong> indicating record duplication ingress.</li>")
+            rca_bullets.append(f"<li><strong>P2 Lead Penetration Loss (LS ➔ Unique Uniqueness Drop):</strong> The percentage of shared leads new to the client dropped by <strong>{abs(fo_rca['up_dp'])}pp</strong>, indicating a shrinking pool of fresh worker profiles.</li>")
         if fo_rca["ls_delta"] < 0:
-            rca_bullets.append(f"<li><strong>P3 Raw Intake Deficit (Top-of-Funnel Sourcing Pool):</strong> Gross pipeline acquisition pool shrank by <strong>{abs(fo_rca['ls_delta'])} raw lead submissions</strong>.</li>")
+            rca_bullets.append(f"<li><strong>P3 Volume Contraction (Gross Lead Share Volume Drop):</strong> Total raw leads shared with the client decreased by <strong>{abs(fo_rca['ls_delta']):,} profiles</strong>.</li>")
             
         st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
     else:
-        st.success(f"🟢 **Funnel Conversion Velocity Optimal:** System parameters expanded by **+{fo_rca['ft_delta']:,} Net Placements** relative to comparison baseline frameworks.")
+        st.success(f"🟢 **Conversion Pipeline Stable:** Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
 
     st.markdown("---")
-    st.markdown("### B. Executive Client-Level Variance Loss Attribution")
+    st.markdown("### B. Drill-down Summary")
     
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
@@ -434,20 +423,19 @@ with tab_rca:
         op_dp = round(op_j - op_m, 2)
         fp_dp = round(fp_j - fp_m, 2)
         
-        # Volume-weighted calculations
         uniq_impact = round(up_dp * vj["ls"] / 100)
         ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
         ft_impact = round(fp_dp * vj["ob"] / 100)
 
         b_tags = []
         if (vj["ls"] - vm["ls"]) < 0 and abs(vj["ls"] - vm["ls"]) > (vm["ls"] * 0.1):
-            b_tags.append({"metric": "LS volume", "delta": vj["ls"] - vm["ls"], "pct": round((vj["ls"] - vm["ls"])/vm["ls"]*100, 1) if vm["ls"]>0 else 0, "severity": "high"})
+            b_tags.append({"metric": "Lead Share (LS) volume", "delta": vj["ls"] - vm["ls"], "pct": round((vj["ls"] - vm["ls"])/vm["ls"]*100, 1) if vm["ls"]>0 else 0, "severity": "high"})
         if up_dp <= -2.0:
-            b_tags.append({"metric": "Uniqueness rate", "delta_pp": up_dp, "impact": uniq_impact, "severity": "high" if up_dp <= -5.0 else "medium"})
+            b_tags.append({"metric": "Uniqueness conversion rate", "delta_pp": up_dp, "impact": uniq_impact, "severity": "high" if up_dp <= -5.0 else "medium"})
         if op_dp <= -2.0:
-            b_tags.append({"metric": "OB activation rate", "delta_pp": op_dp, "impact": ob_impact, "severity": "high" if op_dp <= -5.0 else "medium"})
+            b_tags.append({"metric": "Onboarding (OB) activation rate", "delta_pp": op_dp, "impact": ob_impact, "severity": "high" if op_dp <= -5.0 else "medium"})
         if fp_dp <= -2.0:
-            b_tags.append({"metric": "FT/OB conversion rate", "delta_pp": fp_dp, "impact": ft_impact, "severity": "high" if fp_dp <= -5.0 else "medium"})
+            b_tags.append({"metric": "First Trip (FT) conversion rate", "delta_pp": fp_dp, "impact": ft_impact, "severity": "high" if fp_dp <= -5.0 else "medium"})
 
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"],
@@ -459,29 +447,29 @@ with tab_rca:
     laggard_accounts.sort(key=lambda x: x["ft_abs"])
     
     if not laggard_accounts:
-        st.info("No deficit vectors logged across business channels matching current tracking parameters.")
+        st.info("No conversion declines logged across business channels matching tracking parameters.")
     else:
         for account in laggard_accounts:
             st.markdown(f"""
             <div style='background: #ffffff !important; border: 0.5px solid rgba(0,0,0,0.08); border-left: 4px solid #e05252; border-radius: 8px; padding: 12px; margin-bottom: 12px;'>
                 <div style='display:flex; justify-content: space-between; align-items: center;'>
                     <span style='font-size:13px; font-weight:600; color: #111111 !important;'>{account['name'].upper()}</span>
-                    <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} Placements Variance Loss</span>
+                    <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} First Trips (FT) Variance Loss</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
             if account["bottlenecks"]:
-                st.markdown("**Identified Local Loss Metrics:**")
+                st.markdown("**Primary Operational Bottlenecks:**")
                 for b in account["bottlenecks"]:
                     icon = "🔴 **P0 CRITICAL**" if b["severity"] == "high" else "🟡 **P1 WARNING**"
-                    if b["metric"] == "LS volume":
-                        st.markdown(f"{icon} **{b['metric']}:** Intake pool contracted by **{abs(b['delta']):,} drivers**.")
+                    if b["metric"] == "Lead Share (LS) volume":
+                        st.markdown(f"{icon} **{b['metric']}:** Shared pool shrunk by **{abs(b['delta']):,} worker profiles**.")
                     else:
-                        st.markdown(f"{icon} **{b['metric']}:** Layer conversion shifted by **{b['delta_pp']}%**, causing an calculated downstream leakage of **{abs(b['impact']):,} expected elements** inside this commercial loop branch.")
+                        st.markdown(f"{icon} **{b['metric']}:** Conversion efficiency drifted by **{b['delta_pp']}%**, causing a net leakage of **{abs(b['impact']):,} potential conversions** inside this account's workflow.")
             
-            # Re-scoping sub-aggregates to locate contributing Vendor Lead (VL) anomalies
-            st.markdown("**Vendor Attrition Core (Top-3 Contributing Laggards):**")
+            # Re-scoping sub-aggregates to locate contributing Vahan Leader (VL) anomalies
+            st.markdown("**VL Attrition Matrix (Top-3 Contributing Laggard VLs):**")
             vl_drill_source = payload_rca["funnel_drill"].get(account["name"], {}).get("by_vl", [])
             
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
@@ -490,8 +478,8 @@ with tab_rca:
                 
                 if not worst_performing_vls.empty:
                     for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 Vendor Partner **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Placements** (Jun: {v_row['FT Jun']} vs Baseline: {v_row['FT May']})")
+                        st.markdown(f"- 📉 CL/AM Field Laggard **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Completed First Trips** (Jun: {v_row['FT Jun']} vs Baseline: {v_row['FT May']})")
                 else:
-                    st.caption("Friction normalized across channels; no structural outliers found breaking operational limits.")
+                    st.caption("Friction normalized across channels; no distinct field leader anomalies registered.")
             else:
-                st.caption("No operational vendor network tags mapped to this filtered space parameters setup footprint configuration.")
+                st.caption("No operational VL network tags mapped to this filtered data space footprint.")
