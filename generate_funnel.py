@@ -4,9 +4,9 @@ import requests
 from datetime import date, timedelta
 
 # --- Executive Dashboard Configuration ---
-st.set_page_config(page_title="Executive Funnel Review — Vahan", layout="wide")
+st.set_page_config(page_title="Executive Funnel Review & Core RCA", layout="wide")
 
-# Global UI Design Tokens (Light/Dark adaptive overrides for native elements)
+# Global High-Contrast Styling Tokens (Guarantees crisp visibility in both Light and Dark mode)
 st.markdown("""
 <style>
     .up { color: #4a9e2f !important; font-weight: 600; }
@@ -21,8 +21,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. Live Data Ingestion Pipeline ---
-@st.cache_data(ttl=1800)  # Cached for 30 minutes for optimized API management
+# --- 1. Live API Data Fetching Engine ---
+@st.cache_data(ttl=1800)  # Cached for 30 minutes to safeguard live endpoint thresholds
 def fetch_and_compile_data():
     api_url = "https://redash.vahan.link/api/queries/17631/results.json"
     api_key = "4aFm2iOoyx8I91svQccdeZr0jmaiUsMFSRinZcmu"
@@ -42,23 +42,27 @@ if df_raw.empty:
     st.error("Data pipeline empty. Please verify query compilation status or Redash API availability.")
     st.stop()
 
-# Enforce clean data-types across the metrics pool
+# Format dates and metrics cleanly
 df_raw['day'] = pd.to_datetime(df_raw['day']).dt.date
 df_raw['week'] = pd.to_datetime(df_raw['week']).dt.date
 for col in ['ls', 'uniq', 'ob', 'ft']:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0).astype(int)
 
-# --- 2. Executive Dimension Scoping ---
+# --- 2. Global Filter Dimension Definitions ---
 allClients = sorted(list(df_raw['client'].dropna().unique()))
 allRegions = sorted(list(df_raw['region'].dropna().unique()))
+allVLs = sorted(list(df_raw['vl_name'].dropna().unique()))
+allCLs = sorted(list(df_raw['cl'].dropna().unique()))
+allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
+allWeeks = sorted(list(df_raw['week'].dropna().unique()))
 
-# --- 3. Timeframe Control Panel (MTD vs WTD) ---
+# --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding reporting clock to June 2026 reporting frame
+# Grounding processing clock to June 2026 reporting frame
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -85,14 +89,45 @@ else:
     prev_start = curr_start - timedelta(days=7)
     prev_end = curr_end - timedelta(days=7)
 
+# --- Dynamic Interactive Filters Suite ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Active Constraints Window")
-st.sidebar.caption(f"**Current Window:**\n`{curr_start}` ➔ `{curr_end}`")
-st.sidebar.caption(f"**Prior Period Window:**\n`{prev_start}` ➔ `{prev_end}`")
+st.sidebar.subheader("🔍 Funnel Filters")
+
+selected_weeks = st.sidebar.multiselect("Filter by Specific Week", options=["All"] + allWeeks, default=["All"])
+selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
+selected_regions = st.sidebar.multiselect("Filter by Region", options=["All"] + allRegions, default=["All"])
+selected_vls = st.sidebar.multiselect("Filter by Vendor Lead (VL)", options=["All"] + allVLs, default=["All"])
+selected_cls = st.sidebar.multiselect("Filter by Core Leader (CL)", options=["All"] + allCLs, default=["All"])
+selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=["All"] + allAMs, default=["All"])
 
 # Generate segmented working boundaries
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
 df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
+
+# Apply multi-select dimension logic evenly across both frames to protect historical comparison mapping
+def apply_dimensional_filters(target_df):
+    if not target_df.empty:
+        if selected_weeks and "All" not in selected_weeks:
+            target_df = target_df[target_df['week'].isin(selected_weeks)]
+        if selected_clients and "All" not in selected_clients:
+            target_df = target_df[target_df['client'].isin(selected_clients)]
+        if selected_regions and "All" not in selected_regions:
+            target_df = target_df[target_df['region'].isin(selected_regions)]
+        if selected_vls and "All" not in selected_vls:
+            target_df = target_df[target_df['vl_name'].isin(selected_vls)]
+        if selected_cls and "All" not in selected_cls:
+            target_df = target_df[target_df['cl'].isin(selected_cls)]
+        if selected_ams and "All" not in selected_ams:
+            target_df = target_df[target_df['am_name'].isin(selected_ams)]
+    return target_df
+
+df_curr = apply_dimensional_filters(df_curr)
+df_prev = apply_dimensional_filters(df_prev)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📅 Active Constraints Window")
+st.sidebar.caption(f"**Current Window:**\n`{curr_start}` ➔ `{curr_end}`")
+st.sidebar.caption(f"**Prior Period Window:**\n`{prev_start}` ➔ `{prev_end}`")
 
 # --- 4. Core Metrics Analytics Processing Engine ---
 def build_html_metric_payload(df_c, df_p):
@@ -202,7 +237,7 @@ def transform_to_replicated_dataframe(rows_list):
 
 def display_replicated_table(df, key_prefix):
     if df.empty:
-        st.write("No operational entries found for this matrix cross-section.")
+        st.write("No operational entries found for this segment.")
         return
         
     ordered_cols = [
@@ -259,8 +294,8 @@ def display_replicated_table(df, key_prefix):
     {formatted_html}
     """, height=max(140, len(df)*32 + 50), scrolling=True)
 
-# --- 6. Executive UI Navigation ---
-tab_ui, tab_rca = st.tabs(["📊 Replicated Funnel View", "✨ Prioritized AI Summary"])
+# --- 6. Nav Tabs Core Implementation ---
+tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
 # RENDER TAB: EXECUTIVE REPLICATED FUNNEL
@@ -298,11 +333,13 @@ with tab_ui:
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
     st.markdown("#### VL cut — Configurable Volume Scan")
-    top_n_vl = st.slider("Select Display Window Scale", min_value=5, max_value=100, value=20)
+    top_n_vl = st.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20)
     display_replicated_table(transform_to_replicated_dataframe(payload["by_vl"]).head(top_n_vl), "s5")
 
     st.markdown("#### Client × VL Matrix Drilldown")
-    selected_client_drill = st.selectbox("Isolate Specific Corporate Partner Focus", ["All Clients"] + allClients)
+    active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
+    selected_client_drill = st.selectbox("Isolate Specific Corporate Partner Focus", ["All Clients"] + active_drill_list)
+    top_n_drill_s9 = st.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20)
     
     if selected_client_drill != "All Clients":
         drilled_rows = payload["funnel_drill"].get(selected_client_drill, {}).get("by_vl", [])
@@ -312,7 +349,7 @@ with tab_ui:
             for row in data["by_vl"]:
                 drilled_rows.append({**row, "dim": f"{c} · {row['dim']}"})
                 
-    display_replicated_table(transform_to_replicated_dataframe(drilled_rows), "s9")
+    display_replicated_table(transform_to_replicated_dataframe(drilled_rows).head(top_n_drill_s9), "s9")
 
 
 # ==========================================
@@ -324,19 +361,19 @@ with tab_rca:
     # Context Selection Engine to filter down localized accounts or geo-spaces interactive models
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        rca_client_filter = st.selectbox("Isolate Executive Segment", ["All Accounts"] + allClients, key="rca_c")
+        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
     with filter_col2:
-        rca_region_filter = st.selectbox("Isolate Geo-Spatial Boundaries", ["All Regions"] + allRegions, key="rca_r")
+        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
         
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
-    if rca_client_filter != "All Accounts":
-        df_rca_curr = df_rca_curr[df_rca_curr['client'] == rca_client_filter]
-        df_rca_prev = df_rca_prev[df_rca_prev['client'] == rca_client_filter]
-    if rca_region_filter != "All Regions":
-        df_rca_curr = df_rca_curr[df_rca_curr['region'] == rca_region_filter]
-        df_rca_prev = df_rca_prev[df_rca_prev['region'] == rca_region_filter]
+    if rca_client_filter and "All" not in rca_client_filter:
+        df_rca_curr = df_rca_curr[df_rca_curr['client'].isin(rca_client_filter)]
+        df_rca_prev = df_rca_prev[df_rca_prev['client'].isin(rca_client_filter)]
+    if rca_region_filter and "All" not in rca_region_filter:
+        df_rca_curr = df_rca_curr[df_rca_curr['region'].isin(rca_region_filter)]
+        df_rca_prev = df_rca_prev[df_rca_prev['region'].isin(rca_region_filter)]
         
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
@@ -355,12 +392,12 @@ with tab_rca:
         if fo_rca["ls_delta"] < 0:
             rca_bullets.append(f"<li><strong>P3 Raw Intake Deficit (Top-of-Funnel Sourcing Pool):</strong> Gross pipeline acquisition pool shrank by <strong>{abs(fo_rca['ls_delta'])} raw lead submissions</strong>.</li>")
             
-        st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_wrap_html=True)
+        st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
     else:
         st.success(f"🟢 **Funnel Conversion Velocity Optimal:** System parameters expanded by **+{fo_rca['ft_delta']:,} Net Placements** relative to comparison baseline frameworks.")
 
     st.markdown("---")
-    st.markdown("### B. Segment-Level Loss Attribution & Account Invalidation Tracker")
+    st.markdown("### B. Executive Client-Level Variance Loss Attribution")
     
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
@@ -425,17 +462,12 @@ with tab_rca:
                     if b["metric"] == "LS volume":
                         st.markdown(f"{icon} **{b['metric']}:** Intake pool contracted by **{abs(b['delta']):,} drivers**.")
                     else:
-                        st.markdown(f"{icon} **{b['metric']}:** Layer conversion shifted by **{b['delta_pp']}%**, causing downstream leakage of **{abs(b['impact']):,} expected elements** inside this commercial loop branch.")
+                        st.markdown(f"{icon} **{b['metric']}:** Layer conversion shifted by **{b['delta_pp']}%**, causing an calculated downstream leakage of **{abs(b['impact']):,} expected elements** inside this commercial loop branch.")
             
             # Re-scoping sub-aggregates to locate contributing Vendor Lead (VL) anomalies
             st.markdown("**Vendor Attrition Core (Top-3 Contributing Laggards):**")
             vl_drill_source = payload_rca["funnel_drill"].get(account["name"], {}).get("by_vl", [])
             
-            if rca_region_filter != "All Regions":
-                filtered_vl_rows = df_curr[(df_curr['client'] == account["name"]) & (df_curr['region'] == rca_region_filter)]
-                filtered_vl_prev = df_prev[(df_prev['client'] == account["name"]) & (df_prev['region'] == rca_region_filter)]
-                vl_drill_source = build_html_metric_payload(filtered_vl_rows, filtered_vl_prev)["by_vl"]
-                
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
             if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
                 worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
