@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import json
 from datetime import date, timedelta
 
 # --- Executive Dashboard Configuration ---
@@ -62,7 +63,7 @@ st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding reporting clock to 2026 analytical target frame
+# Grounding processing clock to 2026 analytical target frame context
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -100,6 +101,11 @@ selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["A
 selected_cls = st.sidebar.multiselect("Filter by Core Leader (CL)", options=["All"] + allCLs, default=["All"])
 selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=["All"] + allAMs, default=["All"])
 
+# Optional Free Tier Gemini API Key Input
+st.sidebar.markdown("---")
+st.sidebar.subheader("🤖 Free AI Integration")
+gemini_api_key = st.sidebar.text_input("Enter Free Gemini API Key", type="password", help="Get a completely free API key from Google AI Studio.")
+
 # Generate segmented baseline dataframes
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
 df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
@@ -126,7 +132,7 @@ df_prev = apply_dimensional_filters(df_prev)
 # --- 4. Executive Top-Banner Component ---
 st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
-# --- 5. Data Sorters & Transformers (Strict Parsing Order) ---
+# --- 5. Global Core Data Sorters & Tables Formatting Engines ---
 def get_colored_delta(v, suffix=""):
     if v is None: return "—"
     if v == 0: return f"0{suffix}"
@@ -258,7 +264,7 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- 7. Metrics Object Payload Compiler ---
+# --- 8. Metrics Object Payload Compiler ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
@@ -309,11 +315,14 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
+# --- 9. Layout Nav Tabs Initialization (Fixed Placement Order) ---
+tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
+
 # ==========================================
-# RENDER SCOPE: CORE CONVERSION VIEWS
+# RENDER SCOPE: FUNNEL VIEW METRICS ENGINE
 # ==========================================
 with tab_ui:
-    st.markdown("### Overall Funnel Conversion Checkpoints")
+    st.markdown("### Overall funnel — Jun vs May")
     fo = payload["overall_funnel"]
     
     st.iframe(f"""
@@ -334,16 +343,16 @@ with tab_ui:
     </div>
     """, height=115)
 
-    st.markdown("#### Client Cut")
+    st.markdown("#### Client cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
 
-    st.markdown("#### Product Type Cut")
+    st.markdown("#### Product type cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
 
-    st.markdown("#### Region Cut")
+    st.markdown("#### Region cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    st.markdown("#### VL Cut — Configurable Volume Scan")
+    st.markdown("#### VL cut — Configurable Volume Scan")
     top_n_vl = st.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20)
     display_replicated_table(transform_to_replicated_dataframe(payload["by_vl"]).head(top_n_vl), "s5")
 
@@ -364,12 +373,18 @@ with tab_ui:
 
 
 # ==========================================
-# RENDER SCOPE: CLEAN REPLICATED AI summary
+# RENDER SCOPE: CONTEXTUAL RCA GENERATOR
 # ==========================================
 with tab_rca:
-    st.markdown("## ⚙️ Blue-Collar Funnel Conversion Diagnostics")
+    st.markdown("## ⚙️ Blue-Collar Funnel Conversion Insights Briefing")
     st.caption("Reviewing the conversion paths of blue-collar workers referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
     
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
+    with filter_col2:
+        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
+        
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
@@ -384,22 +399,51 @@ with tab_rca:
     fo_rca = payload_rca["overall_funnel"]
     
     st.markdown("### A. Overall Funnel Summary")
-    if fo_rca["ft_delta"] < 0:
-        st.error(f"🔴 **Conversion Deficit:** Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
-        
-        rca_bullets = []
-        if fo_rca["fp_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P0 First Trip Invalidation (OB ➔ FT Rate Drop):</strong> Onboarding-to-First Trip conversion efficiency dropped by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Workers successfully completed client activation profiles but dropped out before executing their first trip.</li>")
-        if fo_rca["op_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P1 Onboarding Disruption (Unique ➔ OB Rate Drop):</strong> Conversion from verified unique leads to successful onboarding dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
-        if fo_rca["up_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P2 Lead Penetration Loss (LS ➔ Unique Uniqueness Drop):</strong> The percentage of shared leads new to the client dropped by <strong>{abs(fo_rca['up_dp'])}pp</strong>, indicating a shrinking pool of fresh worker profiles.</li>")
-        if fo_rca["ls_delta"] < 0:
-            rca_bullets.append(f"<li><strong>P3 Volume Contraction (Gross Lead Share Volume Drop):</strong> Total raw leads shared with the client decreased by <strong>{abs(fo_rca['ls_delta']):,} profiles</strong>.</li>")
+    
+    # Check if a free Gemini key was supplied to override the rule-based output with live LLM intelligence
+    if gemini_api_key:
+        with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
+            try:
+                endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+                prompt_payload = {
+                    "contents": [{
+                        "parts": [{
+                            "text": f"You are a Senior Data Analyst reporting directly to the CEO. Write a clean, professional, concise metric briefing based on this funnel performance data: {json.dumps(fo_rca)}. "
+                                    f"Terminology rules: LS is Lead Share. Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
+                                    f"Do not use complex technical terms like 'conversion velocity friction'. Keep it clear, insight-focused, and direct."
+                        }]
+                    }]
+                }
+                headers = {'Content-Type': 'application/json'}
+                llm_response = requests.post(endpoint, headers=headers, json=prompt_payload, timeout=15)
+                
+                if llm_response.status_code == 200:
+                    ai_text = llm_response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    st.markdown(ai_text)
+                else:
+                    st.warning("Failed to fetch custom Gemini text payload. Defaulting to strict analytical engine.")
+                    gemini_api_key = None
+            except Exception:
+                gemini_api_key = None
+
+    # Deterministic Analytical Engine Fallback
+    if not gemini_api_key:
+        if fo_rca["ft_delta"] < 0:
+            st.error(f"🔴 **Conversion Deficit:** Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
             
-        st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
-    else:
-        st.success(f"🟢 **Conversion Pipeline Stable:** Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
+            rca_bullets = []
+            if fo_rca["fp_dp"] < 0:
+                rca_bullets.append(f"<li><strong>P0 First Trip Invalidation (OB ➔ FT Rate Drop):</strong> Onboarding-to-First Trip conversion efficiency dropped by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Workers successfully completed client activation profiles but dropped out before executing their first trip.</li>")
+            if fo_rca["op_dp"] < 0:
+                rca_bullets.append(f"<li><strong>P1 Onboarding Disruption (Unique ➔ OB Rate Drop):</strong> Conversion from verified unique leads to successful onboarding dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
+            if fo_rca["up_dp"] < 0:
+                rca_bullets.append(f"<li><strong>P2 Lead Penetration Loss (LS ➔ Unique Uniqueness Drop):</strong> The percentage of shared leads new to the client dropped by <strong>{abs(fo_rca['up_dp'])}pp</strong>, indicating a shrinking pool of fresh worker profiles.</li>")
+            if fo_rca["ls_delta"] < 0:
+                rca_bullets.append(f"<li><strong>P3 Volume Contraction (Gross Lead Share Volume Drop):</strong> Total raw leads shared with the client decreased by <strong>{abs(fo_rca['ls_delta']):,} profiles</strong>.</li>")
+                
+            st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
+        else:
+            st.success(f"🟢 **Conversion Pipeline Stable:** Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
 
     st.markdown("---")
     st.markdown("### B. Drill-down Summary")
@@ -423,6 +467,7 @@ with tab_rca:
         op_dp = round(op_j - op_m, 2)
         fp_dp = round(fp_j - fp_m, 2)
         
+        # Volume-weighted calculations
         uniq_impact = round(up_dp * vj["ls"] / 100)
         ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
         ft_impact = round(fp_dp * vj["ob"] / 100)
@@ -447,7 +492,7 @@ with tab_rca:
     laggard_accounts.sort(key=lambda x: x["ft_abs"])
     
     if not laggard_accounts:
-        st.info("No conversion declines logged across business channels matching tracking parameters.")
+        st.info("No deficit vectors logged across business channels matching current tracking parameters.")
     else:
         for account in laggard_accounts:
             st.markdown(f"""
