@@ -3,15 +3,15 @@ import pandas as pd
 import requests
 from datetime import date, timedelta
 
-# --- Page Optimization Configuration ---
-st.set_page_config(page_title="Vahan June Review — Live Funnel", layout="wide")
+# --- Executive Dashboard Configuration ---
+st.set_page_config(page_title="Executive Funnel Review — Vahan", layout="wide")
 
-# Custom CSS styling to mimic the crisp design tokens of the original HTML dashboard
+# Global UI Design Tokens (Light/Dark adaptive overrides for native elements)
 st.markdown("""
 <style>
     .up { color: #4a9e2f !important; font-weight: 600; }
     .dn { color: #e05252 !important; font-weight: 600; }
-    .fl { color: #666666 !important; }
+    .fl { color: #888888 !important; }
     .bold { font-weight: 600; }
     .pill { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 20px; font-size: 11px; font-weight: 600; }
     .pg { background-color: rgba(74,158,47,0.15); color: #4a9e2f; }
@@ -21,8 +21,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. Live API Data Fetching Engine ---
-@st.cache_data(ttl=1800)  # Cached for 30 minutes to manage live API rate limits
+# --- 1. Live Data Ingestion Pipeline ---
+@st.cache_data(ttl=1800)  # Cached for 30 minutes for optimized API management
 def fetch_and_compile_data():
     api_url = "https://redash.vahan.link/api/queries/17631/results.json"
     api_key = "4aFm2iOoyx8I91svQccdeZr0jmaiUsMFSRinZcmu"
@@ -39,26 +39,26 @@ def fetch_and_compile_data():
 df_raw = fetch_and_compile_data()
 
 if df_raw.empty:
-    st.error("Data pipeline empty. Verify query compilation status or Redash API availability.")
+    st.error("Data pipeline empty. Please verify query compilation status or Redash API availability.")
     st.stop()
 
-# Format dates and metrics cleanly
+# Enforce clean data-types across the metrics pool
 df_raw['day'] = pd.to_datetime(df_raw['day']).dt.date
 df_raw['week'] = pd.to_datetime(df_raw['week']).dt.date
 for col in ['ls', 'uniq', 'ob', 'ft']:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0).astype(int)
 
-# --- 2. Global Dimension Definitions ---
+# --- 2. Executive Dimension Scoping ---
 allClients = sorted(list(df_raw['client'].dropna().unique()))
 allRegions = sorted(list(df_raw['region'].dropna().unique()))
 
-# --- 3. Sidebar Date Math & Apples-to-Apples Configuration ---
-st.sidebar.header("⏱️ Filters & Timeframe")
+# --- 3. Timeframe Control Panel (MTD vs WTD) ---
+st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding processing clock to execution window matrix (June 2026 Context)
+# Grounding reporting clock to June 2026 reporting frame
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -67,7 +67,7 @@ if exclude_incomplete:
 else:
     reference_date = operational_today
 
-# Target structural date buckets initialization matching your strict apples-to-apples logic
+# Replicate exact apples-to-apples baseline boundaries
 if view_mode == "MTD (Month-to-Date)":
     curr_start = reference_date.replace(day=1)
     curr_end = reference_date
@@ -78,7 +78,6 @@ if view_mode == "MTD (Month-to-Date)":
     try:
         prev_end = date(prev_year, prev_month, reference_date.day)
     except ValueError:
-        # Catch month length differences safely (e.g. March 31 ➔ Feb 28)
         prev_end = (date(prev_year, prev_month + 1, 1) - timedelta(days=1))
 else:
     curr_start = reference_date - timedelta(days=reference_date.weekday())
@@ -87,15 +86,15 @@ else:
     prev_end = curr_end - timedelta(days=7)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Active Comparison Matrix")
-st.sidebar.caption(f"**Current Scope:**\n`{curr_start}` ➔ `{curr_end}`")
-st.sidebar.caption(f"**Previous Scope:**\n`{prev_start}` ➔ `{prev_end}`")
+st.sidebar.subheader("📅 Active Constraints Window")
+st.sidebar.caption(f"**Current Window:**\n`{curr_start}` ➔ `{curr_end}`")
+st.sidebar.caption(f"**Prior Period Window:**\n`{prev_start}` ➔ `{prev_end}`")
 
-# Slice functional DataFrames
+# Generate segmented working boundaries
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
 df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
 
-# --- 4. Dynamic HTML Object Compiler ---
+# --- 4. Core Metrics Analytics Processing Engine ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     
@@ -116,7 +115,7 @@ def build_html_metric_payload(df_c, df_p):
         "fp_j": get_pct(fj["ft"], fj["ob"]), "fp_m": get_pct(fm["ft"], fm["ob"]), "fp_dp": get_pp(get_pct(fj["ft"], fj["ob"]), get_pct(fm["ft"], fm["ob"]))
     }
 
-    # Reconfigured helper to isolate metric column sums
+    # Protected dimension rollup function isolating numeric targets
     def roll_dim(df_w_c, df_w_p, dim_key):
         c_grp = df_w_c.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
         p_grp = df_w_p.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
@@ -149,7 +148,7 @@ def build_html_metric_payload(df_c, df_p):
 
 payload = build_html_metric_payload(df_curr, df_prev)
 
-# --- 5. Column & Cell Render Pipeline ---
+# --- 5. High-Contrast Render Pipeline ---
 def get_colored_delta(v, suffix=""):
     if v is None: return "—"
     if v == 0: return f"0{suffix}"
@@ -203,7 +202,7 @@ def transform_to_replicated_dataframe(rows_list):
 
 def display_replicated_table(df, key_prefix):
     if df.empty:
-        st.write("No rows match the specified criteria.")
+        st.write("No operational entries found for this matrix cross-section.")
         return
         
     ordered_cols = [
@@ -243,48 +242,51 @@ def display_replicated_table(df, key_prefix):
     formatted_html += "</tbody></table>"
     st.components.v1.html(f"""
     <style>
-        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, sans-serif; font-size: 12px; }}
-        th {{ text-align: left; background: #f7f6f3; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666; white-space: nowrap; }}
-        td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; }}
-        tr:hover td {{ background: #f7f6f3; }}
-        .bold {{ font-weight: 600; }}
-        .fl {{ color: #aaa; }}
-        .up {{ color: #4a9e2f; font-weight: 600; }}
-        .dn {{ color: #e05252; font-weight: 600; }}
+        body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
+        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
+        th {{ text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; }}
+        td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; }}
+        tr:hover td {{ background: #f7f6f3 !important; }}
+        .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
     </style>
     {formatted_html}
-    """, height=max(120, len(df)*32 + 50), scrolling=True)
+    """, height=max(140, len(df)*32 + 50), scrolling=True)
 
-# --- 6. Nav Tabs Core Implementation ---
-tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
+# --- 6. Executive UI Navigation ---
+tab_ui, tab_rca = st.tabs(["📊 Replicated Funnel View", "✨ Prioritized AI Summary"])
 
 # ==========================================
-# RENDER SCOPE: FUNNEL VIEW TAB
+# RENDER TAB: EXECUTIVE REPLICATED FUNNEL
 # ==========================================
 with tab_ui:
-    st.markdown("### Overall funnel — Jun vs May")
+    st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
     fo = payload["overall_funnel"]
     
+    # Theme-Isolated KPI Blocks
     st.components.v1.html(f"""
     <style>
-        .row {{ display: flex; gap: 8px; font-family: -apple-system, sans-serif; }}
-        .card {{ flex: 1; background: #fff; border: 0.5px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 12px; text-align: center; }}
-        .val {{ font-size: 20px; font-weight: 500; }}
-        .lbl {{ font-size: 10px; color: #666; text-transform: uppercase; margin: 3px 0; }}
-        .sub {{ font-size: 11px; color: #aaa; }}
+        body {{ background-color: transparent; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
+        .row {{ display: flex; gap: 8px; }}
+        .card {{ flex: 1; background: #ffffff !important; color: #111111 !important; border: 0.5px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }}
+        .val {{ font-size: 22px; font-weight: 600; color: #111111 !important; }}
+        .lbl {{ font-size: 10px; color: #666666 !important; text-transform: uppercase; margin: 3px 0; letter-spacing: 0.05em; }}
+        .sub {{ font-size: 11px; color: #888888 !important; }}
         .up {{ color: #4a9e2f; font-weight: 600; }} .dn {{ color: #e05252; font-weight: 600; }}
     </style>
     <div class="row">
-        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS</div><div class="sub">May: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</div></div>
-        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique</div><div class="sub">May: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</div></div>
-        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">OB</div><div class="sub">May: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</div></div>
-        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">FT</div><div class="sub">May: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</div></div>
+        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS (Ingress Pool)</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique Filters</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">Placements (FT)</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
     </div>
-    """, height=110)
+    """, height=115)
 
     st.markdown("#### Client cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
@@ -295,12 +297,12 @@ with tab_ui:
     st.markdown("#### Region cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    st.markdown("#### VL cut — configurable top N")
-    top_n_vl = st.slider("Select display window matrix sizing constraints", min_value=5, max_value=100, value=20)
+    st.markdown("#### VL cut — Configurable Volume Scan")
+    top_n_vl = st.slider("Select Display Window Scale", min_value=5, max_value=100, value=20)
     display_replicated_table(transform_to_replicated_dataframe(payload["by_vl"]).head(top_n_vl), "s5")
 
     st.markdown("#### Client × VL Matrix Drilldown")
-    selected_client_drill = st.selectbox("Isolate Account Filter", ["All Clients"] + allClients)
+    selected_client_drill = st.selectbox("Isolate Specific Corporate Partner Focus", ["All Clients"] + allClients)
     
     if selected_client_drill != "All Clients":
         drilled_rows = payload["funnel_drill"].get(selected_client_drill, {}).get("by_vl", [])
@@ -314,19 +316,18 @@ with tab_ui:
 
 
 # ==========================================
-# RENDER SCOPE: DYNAMIC INTERACTIVE RCA TAB
+# RENDER SCOPE: STRATEGIC EX-SUMMARY (RCA)
 # ==========================================
 with tab_rca:
-    st.markdown("## ✨ Automated Prioritized Funnel RCA Summary")
+    st.markdown("## ⚙️ Strategic Root Cause Analysis — Volume-Weighted Impact Models")
     
-    # ── CONTEXT INTERACTIVE SELECTORS ──
+    # Context Selection Engine to filter down localized accounts or geo-spaces interactive models
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        rca_client_filter = st.selectbox("Investigate Specific Account Portfolio", ["All Accounts"] + allClients)
+        rca_client_filter = st.selectbox("Isolate Executive Segment", ["All Accounts"] + allClients, key="rca_c")
     with filter_col2:
-        rca_region_filter = st.selectbox("Isolate Geo-Spatial Territory", ["All Regions"] + allRegions)
+        rca_region_filter = st.selectbox("Isolate Geo-Spatial Boundaries", ["All Regions"] + allRegions, key="rca_r")
         
-    # Contextual Slicing Engine dedicated completely to RCA calculations
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
@@ -337,33 +338,29 @@ with tab_rca:
         df_rca_curr = df_rca_curr[df_rca_curr['region'] == rca_region_filter]
         df_rca_prev = df_rca_prev[df_rca_prev['region'] == rca_region_filter]
         
-    # Compile dynamic contextual metrics
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    # ── OVERVIEW A: OVERALL VIEW ──
-    st.markdown("### A. Overall view")
+    st.markdown("### A. Macro Pipeline Volume Attrition Analysis")
     if fo_rca["ft_delta"] < 0:
-        st.error(f"🔴 **System Performance Bottleneck:** First Trips dropped by **{abs(fo_rca['ft_delta']):,} FT** inside the configured filter parameters.")
+        st.error(f"🚨 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
         
         rca_bullets = []
         if fo_rca["fp_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P0 Bottleneck Found (OB ➔ FT Rate Decay):</strong> Onboarding deployment conversion down by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (falling from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Drivers finish structural profile validation maps but drop before executing initial runs.</li>")
+            rca_bullets.append(f"<li><strong>P0 Conversion Velocity Friction (OB ➔ FT):</strong> Deployment conversion efficiency contracted by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (slipped from {fo_rca['fp_m']}% down to {fo_rca['fp_j']}%). Documented profiles are reaching full validation parameters but default before scheduling their first assignment.</li>")
         if fo_rca["op_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P1 Bottleneck Found (Unique ➔ OB Rate Decay):</strong> Onboarding velocity shifted downwards by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
+            rca_bullets.append(f"<li><strong>P1 Onboarding Pipeline Friction (Unique ➔ OB):</strong> Sourcing-to-Profile verification completion dropped by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
         if fo_rca["up_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P2 Bottleneck Found (LS ➔ Unique Conversion Drop):</strong> Ingress lead uniqueness rates degraded by <strong>{abs(fo_rca['up_dp'])}pp</strong> indicating record duplication.</li>")
+            rca_bullets.append(f"<li><strong>P2 Sourcing Invalidation Contamination (LS ➔ Unique):</strong> Unique entry verification rates degraded by <strong>{abs(fo_rca['up_dp'])}pp</strong> indicating record duplication ingress.</li>")
         if fo_rca["ls_delta"] < 0:
-            rca_bullets.append(f"<li><strong>P3 Bottleneck Found (Top-of-Funnel Lead Shortfall):</strong> Baseline sourcing ingress contracted by <strong>{abs(fo_rca['ls_delta']):,} raw items</strong>.</li>")
+            rca_bullets.append(f"<li><strong>P3 Raw Intake Deficit (Top-of-Funnel Sourcing Pool):</strong> Gross pipeline acquisition pool shrank by <strong>{abs(fo_rca['ls_delta'])} raw lead submissions</strong>.</li>")
             
         st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_wrap_html=True)
     else:
-        st.success(f"🟢 **Operational Balance Intact:** Selected scope shows expansion of **+{fo_rca['ft_delta']:,} FT** over the matched timeline boundaries.")
+        st.success(f"🟢 **Funnel Conversion Velocity Optimal:** System parameters expanded by **+{fo_rca['ft_delta']:,} Net Placements** relative to comparison baseline frameworks.")
 
     st.markdown("---")
-    
-    # ── OVERVIEW B: CLIENT LEVEL VIEW ──
-    st.markdown("### B. Client level view")
+    st.markdown("### B. Segment-Level Loss Attribution & Account Invalidation Tracker")
     
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
@@ -384,7 +381,7 @@ with tab_rca:
         op_dp = round(op_j - op_m, 2)
         fp_dp = round(fp_j - fp_m, 2)
         
-        # Exact volume weight equation matrices implementation
+        # Volume-weighted calculations
         uniq_impact = round(up_dp * vj["ls"] / 100)
         ob_impact = round(op_dp * vj["uniqueness"] / 100) if vj["uniqueness"] > 0 else round(op_dp * vj["ls"] / 100)
         ft_impact = round(fp_dp * vj["ob"] / 100)
@@ -409,39 +406,44 @@ with tab_rca:
     laggard_accounts.sort(key=lambda x: x["ft_abs"])
     
     if not laggard_accounts:
-        st.info("No drops encountered across localized client channels matching specified parameter matrix boundaries.")
+        st.info("No deficit vectors logged across business channels matching current tracking parameters.")
     else:
         for account in laggard_accounts:
             st.markdown(f"""
-            <div style='background: #fff; border: 0.5px solid rgba(0,0,0,0.08); border-left: 4px solid #e05252; border-radius: 8px; padding: 12px; margin-bottom: 12px;'>
+            <div style='background: #ffffff !important; border: 0.5px solid rgba(0,0,0,0.08); border-left: 4px solid #e05252; border-radius: 8px; padding: 12px; margin-bottom: 12px;'>
                 <div style='display:flex; justify-content: space-between; align-items: center;'>
-                    <span style='font-size:13px; font-weight:600;'>{account['name'].upper()}</span>
-                    <span class='dn'>{account['ft_abs']:,} Placements Drop</span>
+                    <span style='font-size:13px; font-weight:600; color: #111111 !important;'>{account['name'].upper()}</span>
+                    <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} Placements Variance Loss</span>
                 </div>
             </div>
             """, unsafe_wrap_html=True)
             
             if account["bottlenecks"]:
-                st.markdown("**Prioritized Pipeline Failure Layers:**")
+                st.markdown("**Identified Local Loss Metrics:**")
                 for b in account["bottlenecks"]:
-                    icon = "🔴 P0" if b["severity"] == "high" else "🟡 P1"
+                    icon = "🔴 **P0 CRITICAL**" if b["severity"] == "high" else "🟡 **P1 WARNING**"
                     if b["metric"] == "LS volume":
-                        st.markdown(f"{icon} **{b['metric']}:** Volume contracted by **{abs(b['delta']):,}** drivers.")
+                        st.markdown(f"{icon} **{b['metric']}:** Intake pool contracted by **{abs(b['delta']):,} drivers**.")
                     else:
-                        st.markdown(f"{icon} **{b['metric']}:** Efficiency drifted by **{b['delta_pp']}%**, causing an absolute downstream leakage of **{abs(b['impact']):,} candidates** inside this segment path.")
+                        st.markdown(f"{icon} **{b['metric']}:** Layer conversion shifted by **{b['delta_pp']}%**, causing downstream leakage of **{abs(b['impact']):,} expected elements** inside this commercial loop branch.")
             
-            # Direct multi-filter linked Vendor Attribution extraction loop
-            st.markdown("**Underperforming Network Vendor Slices (VL Cut):**")
+            # Re-scoping sub-aggregates to locate contributing Vendor Lead (VL) anomalies
+            st.markdown("**Vendor Attrition Core (Top-3 Contributing Laggards):**")
             vl_drill_source = payload_rca["funnel_drill"].get(account["name"], {}).get("by_vl", [])
             
+            if rca_region_filter != "All Regions":
+                filtered_vl_rows = df_curr[(df_curr['client'] == account["name"]) & (df_curr['region'] == rca_region_filter)]
+                filtered_vl_prev = df_prev[(df_prev['client'] == account["name"]) & (df_prev['region'] == rca_region_filter)]
+                vl_drill_source = build_html_metric_payload(filtered_vl_rows, filtered_vl_prev)["by_vl"]
+                
             vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
             if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
                 worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
                 
                 if not worst_performing_vls.empty:
                     for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 Vendor **{v_row['Dimension']}**: Account Drop Contribution of **{v_row['FT Δ']} FT** (Jun: {v_row['FT Jun']} vs Baseline: {v_row['FT May']})")
+                        st.markdown(f"- 📉 Vendor Partner **{v_row['Dimension']}**: Net Deficit of **{v_row['FT Δ']} Placements** (Jun: {v_row['FT Jun']} vs Baseline: {v_row['FT May']})")
                 else:
-                    st.caption("Friction balanced across vendor metrics; no distinct statistical laggard anomalies registered.")
+                    st.caption("Friction normalized across channels; no structural outliers found breaking operational limits.")
             else:
-                st.caption("No operational vendor data discovered for this current filter footprint layout configuration.")
+                st.caption("No operational vendor network tags mapped to this filtered space parameters setup footprint configuration.")
