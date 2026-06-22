@@ -6,7 +6,7 @@ from datetime import date, timedelta
 # --- Page Optimization Configuration ---
 st.set_page_config(page_title="Vahan June Review — Live Funnel", layout="wide")
 
-# Custom CSS styling to mimic the design tokens of the original HTML dashboard
+# Custom CSS styling to mimic the crisp design tokens of the original HTML dashboard
 st.markdown("""
 <style>
     .up { color: #4a9e2f !important; font-weight: 600; }
@@ -116,9 +116,10 @@ def build_html_metric_payload(df_c, df_p):
         "fp_j": get_pct(fj["ft"], fj["ob"]), "fp_m": get_pct(fm["ft"], fm["ob"]), "fp_dp": get_pp(get_pct(fj["ft"], fj["ob"]), get_pct(fm["ft"], fm["ob"]))
     }
 
+    # Reconfigured helper to isolate metric column sums
     def roll_dim(df_w_c, df_w_p, dim_key):
-        c_grp = df_w_c.groupby(dim_key).sum()
-        p_grp = df_w_p.groupby(dim_key).sum()
+        c_grp = df_w_c.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
+        p_grp = df_w_p.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
         m = c_grp.join(p_grp, lsuffix='_c', rsuffix='_p', how='outer').fillna(0)
         res = []
         for d, r in m.iterrows():
@@ -202,7 +203,7 @@ def transform_to_replicated_dataframe(rows_list):
 
 def display_replicated_table(df, key_prefix):
     if df.empty:
-        st.write("No matching entries found.")
+        st.write("No rows match the specified criteria.")
         return
         
     ordered_cols = [
@@ -250,7 +251,7 @@ def display_replicated_table(df, key_prefix):
         .fl {{ color: #aaa; }}
         .up {{ color: #4a9e2f; font-weight: 600; }}
         .dn {{ color: #e05252; font-weight: 600; }}
-        .pill {{ inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
+        .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
@@ -262,7 +263,7 @@ def display_replicated_table(df, key_prefix):
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
-# RENDER SCOPE: REPLICATED FUNNEL ENGINE
+# RENDER SCOPE: FUNNEL VIEW TAB
 # ==========================================
 with tab_ui:
     st.markdown("### Overall funnel — Jun vs May")
@@ -313,7 +314,7 @@ with tab_ui:
 
 
 # ==========================================
-# RENDER SCOPE: CONFIGURABLE AI SUMMARY VIEW
+# RENDER SCOPE: DYNAMIC INTERACTIVE RCA TAB
 # ==========================================
 with tab_rca:
     st.markdown("## ✨ Automated Prioritized Funnel RCA Summary")
@@ -347,7 +348,7 @@ with tab_rca:
         
         rca_bullets = []
         if fo_rca["fp_dp"] < 0:
-            rca_bullets.append(f"<li><strong>P0 Bottleneck Found (OB ➔ FT Rate Decay):</strong> Onboarding deployment conversion down by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (falling from {fo_funnel['fp_m']}% to {fo_funnel['fp_j']}%). Drivers finish structural profile validation maps but drop before executing initial runs.</li>")
+            rca_bullets.append(f"<li><strong>P0 Bottleneck Found (OB ➔ FT Rate Decay):</strong> Onboarding deployment conversion down by <strong>{abs(fo_rca['fp_dp'])}pp</strong> (falling from {fo_rca['fp_m']}% to {fo_rca['fp_j']}%). Drivers finish structural profile validation maps but drop before executing initial runs.</li>")
         if fo_rca["op_dp"] < 0:
             rca_bullets.append(f"<li><strong>P1 Bottleneck Found (Unique ➔ OB Rate Decay):</strong> Onboarding velocity shifted downwards by <strong>{abs(fo_rca['op_dp'])}pp</strong>.</li>")
         if fo_rca["up_dp"] < 0:
@@ -357,7 +358,7 @@ with tab_rca:
             
         st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_wrap_html=True)
     else:
-        st.success(f"🟢 **Operational Balance Intact:** Selected scope shows expansion of **+{fo_rca['ft_delta']:,} FT** over the matched historical timeline pipeline bounds.")
+        st.success(f"🟢 **Operational Balance Intact:** Selected scope shows expansion of **+{fo_rca['ft_delta']:,} FT** over the matched timeline boundaries.")
 
     st.markdown("---")
     
