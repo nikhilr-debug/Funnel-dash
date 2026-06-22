@@ -265,40 +265,59 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- Hardened API Retry Engine ---
+
+# --- AI Engine: Auto-Failover Cascade (Fixes 404 & 503 Errors) ---
 def call_gemini_with_retries(api_key, payload, max_retries=3):
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # Google formally retired gemini-1.5-flash in June 2026. 
+    # We cascade through the 2026 stable endpoints to guarantee an answer.
+    models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]
     headers = {'Content-Type': 'application/json'}
     
     last_error = None
-    for attempt in range(max_retries):
-        try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=45)
-            if resp.status_code == 200:
-                return {"status": "success", "data": resp.json()}
-            elif resp.status_code == 401:
-                # Specifically catch invalid API Keys to give a human-readable message
-                return {"status": "error", "message": "Invalid API Key. Please verify your Gemini API key from Google AI Studio."}
-            elif resp.status_code in [503, 429]:  
-                last_error = f"Model overloaded/Rate limited (Status {resp.status_code})."
+    
+    for model in models_to_try:
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(endpoint, headers=headers, json=payload, timeout=45)
+                
+                if resp.status_code == 200:
+                    return {"status": "success", "data": resp.json()}
+                
+                elif resp.status_code == 401:
+                    return {"status": "error", "message": "Invalid API Key. Please verify your Gemini key in Google AI Studio."}
+                
+                elif resp.status_code == 404:
+                    # Model not found (deprecated endpoint), immediately break attempt loop and try next model
+                    last_error = f"Model {model} is deprecated or unavailable (404)."
+                    break 
+                    
+                elif resp.status_code in [503, 429]:  
+                    # Server overloaded or rate limited, exponential backoff then retry
+                    last_error = f"Model {model} overloaded (Status {resp.status_code})."
+                    if attempt < max_retries - 1:
+                        time.sleep((2 ** attempt) + 1)
+                        continue
+                    break # Exhausted retries for this model, move to next
+                else:
+                    return {"status": "error", "message": f"Status {resp.status_code}: {resp.text[:200]}"}
+                    
+            except requests.exceptions.Timeout:
+                last_error = f"Connection to {model} Timed Out."
                 if attempt < max_retries - 1:
                     time.sleep((2 ** attempt) + 1)
                     continue
-                return {"status": "error", "message": last_error}
-            else:
-                return {"status": "error", "message": f"Status {resp.status_code}: {resp.text[:200]}"}
-        except requests.exceptions.Timeout:
-            last_error = "Connection Timed Out. Google's servers took too long to respond."
-            if attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + 1)
-                continue
-        except requests.exceptions.RequestException as e:
-            last_error = f"Network Exception: {str(e)}"
-            if attempt < max_retries - 1:
-                time.sleep((2 ** attempt) + 1)
-                continue
+                break
+            except requests.exceptions.RequestException as e:
+                last_error = f"Network Exception on {model}: {str(e)}"
+                if attempt < max_retries - 1:
+                    time.sleep((2 ** attempt) + 1)
+                    continue
+                break
                 
     return {"status": "error", "message": last_error}
+
 
 # --- Dictionary Mapping User Selections to Actual DataFrame Columns ---
 SORT_METRICS_MAP = {
@@ -625,7 +644,7 @@ with tab_rca:
     st.markdown("### A. Overall Funnel Summary")
     
     if gemini_api_key:
-        with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
+        with st.spinner("🧠 Querying free Gemini AI cascade layer to generate corporate analysis briefing..."):
             gemini_api_key_clean = gemini_api_key.strip()
             
             context_payload = {
@@ -652,7 +671,7 @@ with tab_rca:
                 ai_text = llm_response["data"]["candidates"][0]["content"]["parts"][0]["text"]
                 st.markdown(ai_text)
             else:
-                st.warning(f"AI API Authentication Failed: {llm_response['message']}. Defaulting to strict analytical engine.")
+                st.warning(f"Failed to fetch AI payload. Defaulting to strict analytical engine. Details: {llm_response['message']}")
                 gemini_api_key = None
 
     if not gemini_api_key:
@@ -798,4 +817,4 @@ with tab_chat:
                         message_placeholder.markdown(ai_response)
                         st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
                     else:
-                        message_placeholder.error(f"Authentication Error: {llm_chat_resp['message']}")
+                        message_placeholder.error(f"Error communicating with AI API. Details: {llm_chat_resp['message']}")
