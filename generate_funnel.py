@@ -94,7 +94,7 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔍 Funnel Filters")
 
-selected_weeks = st.sidebar.multiselect("Filter by Specific Week", options=["All"] + allWeeks, default=["All"])
+selected_weeks = st.sidebar.multiselect("Filter by Specific Week (Applies to both MTD & WTD)", options=["All"] + allWeeks, default=["All"])
 selected_clients = st.sidebar.multiselect("Filter by Client", options=["All"] + allClients, default=["All"])
 selected_regions = st.sidebar.multiselect("Filter by Region", options=["All"] + allRegions, default=["All"])
 selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["All"] + allVLs, default=["All"])
@@ -349,7 +349,7 @@ def build_html_metric_payload(df_c, df_p):
 payload = build_html_metric_payload(df_curr, df_prev)
 
 # --- 7. Layout Nav Tabs Initialization ---
-tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
+tab_ui, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "✨ AI Summary", "💬 Ask AI"])
 
 # ==========================================
 # RENDER TAB: EXECUTIVE REPLICATED FUNNEL
@@ -511,7 +511,7 @@ with tab_rca:
     
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
+        rca_client_filter = st.multiselect("Isolate Executive Account Segments", options=["All"] + allClients, default=["All"], key="rca_c")
     with filter_col2:
         rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
         
@@ -710,3 +710,65 @@ with tab_rca:
             else:
                 st.caption("No operational VL network tags mapped to this filtered data space footprint.")
             st.markdown("<br>", unsafe_allow_html=True)
+
+# ==========================================
+# RENDER SCOPE: AI CHATBOT INTERFACE
+# ==========================================
+with tab_chat:
+    st.markdown("## 💬 Executive AI Assistant")
+    st.caption("Ask questions about funnel drops, top performing VLs, or specific client metrics. Powered by Gemini Flash.")
+
+    # Initialize chat history in session state
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # Display chat messages from history
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input box
+    if prompt := st.chat_input("Ask a question about the funnel performance..."):
+        if not gemini_api_key:
+            st.warning("Please enter your free Gemini API Key in the sidebar to activate the AI Chatbot.")
+        else:
+            # Append and display user message
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # Generate Assistant Response
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                with st.spinner("Analyzing funnel data..."):
+                    
+                    # Create data context for the AI
+                    context_data = {
+                        "overall_performance": payload["overall_funnel"],
+                        "top_5_growing_vls": top_growing_vls['delta'].to_dict(),
+                        "top_5_degrowing_vls": top_degrowing_vls['delta'].to_dict(),
+                        "laggard_clients_overview": [(c["name"], c["ft_abs"]) for c in laggard_clients]
+                    }
+                    
+                    # Build chat history array format for Gemini API
+                    gemini_history = []
+                    for m in st.session_state.chat_history[:-1]:
+                        gemini_role = "user" if m["role"] == "user" else "model"
+                        gemini_history.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
+                    
+                    # Append the current prompt with hidden data context
+                    current_prompt_with_context = f"Data Context: {json.dumps(context_data)}\n\nUser Question: {prompt}\n\nAnswer concisely as a Data Analyst based ONLY on the provided context."
+                    gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
+                    
+                    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+                    
+                    try:
+                        resp = requests.post(endpoint, headers={'Content-Type': 'application/json'}, json={"contents": gemini_history}, timeout=20)
+                        if resp.status_code == 200:
+                            ai_response = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                            message_placeholder.markdown(ai_response)
+                            st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
+                        else:
+                            message_placeholder.error("Error communicating with AI API. Please verify your API key.")
+                    except Exception as e:
+                        message_placeholder.error(f"Failed to generate response: {e}")
