@@ -265,29 +265,38 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, len(df)*32 + 50))
 
-# --- API Retry Engine for Bulletproof LLM calls ---
+# --- Hardened API Retry Engine ---
 def call_gemini_with_retries(api_key, payload, max_retries=3):
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     
+    last_error = None
     for attempt in range(max_retries):
         try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=20)
+            # Extended timeout to 45 seconds to handle complex free-tier inferences
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=45)
             if resp.status_code == 200:
-                return resp
-            elif resp.status_code == 503:
+                return {"status": "success", "data": resp.json()}
+            elif resp.status_code in [503, 429]:  # Server overloaded or rate limited
+                last_error = f"Status {resp.status_code}: Model overloaded/Rate limited."
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt) # Exponential backoff: 1s, 2s, 4s
+                    time.sleep((2 ** attempt) + 1) # Exponential backoff
                     continue
-                return resp
+                return {"status": "error", "message": last_error}
             else:
-                return resp # Return immediately for 400, 404, etc.
-        except requests.exceptions.RequestException as e:
+                return {"status": "error", "message": f"Status {resp.status_code}: {resp.text[:200]}"}
+        except requests.exceptions.Timeout:
+            last_error = "Connection Timed Out (45s). The model is taking too long to generate a response."
             if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep((2 ** attempt) + 1)
                 continue
-            raise e
-    return None
+        except requests.exceptions.RequestException as e:
+            last_error = f"Network Exception: {str(e)}"
+            if attempt < max_retries - 1:
+                time.sleep((2 ** attempt) + 1)
+                continue
+                
+    return {"status": "error", "message": last_error}
 
 # --- Dictionary Mapping User Selections to Actual DataFrame Columns ---
 SORT_METRICS_MAP = {
@@ -529,22 +538,9 @@ with tab_rca:
     st.markdown("## ⚙️ Funnel Conversion Insights Briefing")
     st.caption("Reviewing the conversion paths of leads referred to our clients (Lead Share) who were verified as unique to the client's database (Uniqueness), successfully completed onboarding activation (OB), and executed their first baseline shift run (FT).")
     
-    filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
-    with filter_col2:
-        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
-        
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
     
-    if rca_client_filter and "All" not in rca_client_filter:
-        df_rca_curr = df_rca_curr[df_rca_curr['client'].isin(rca_client_filter)]
-        df_rca_prev = df_rca_prev[df_rca_prev['client'].isin(rca_client_filter)]
-    if rca_region_filter and "All" not in rca_region_filter:
-        df_rca_curr = df_rca_curr[df_rca_curr['region'].isin(rca_region_filter)]
-        df_rca_prev = df_rca_prev[df_rca_prev['region'].isin(rca_region_filter)]
-        
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
@@ -615,8 +611,8 @@ with tab_rca:
     
     if gemini_api_key:
         with st.spinner("🧠 Querying free Gemini Flash layer to generate corporate analysis briefing..."):
-            
             gemini_api_key_clean = gemini_api_key.strip()
+            
             context_payload = {
                 "overall": fo_rca,
                 "top_growing_vls": {str(k): int(v) for k, v in top_growing_vls['delta'].items()},
@@ -637,12 +633,11 @@ with tab_rca:
             
             llm_response = call_gemini_with_retries(gemini_api_key_clean, prompt_payload)
             
-            if llm_response and llm_response.status_code == 200:
-                ai_text = llm_response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            if llm_response["status"] == "success":
+                ai_text = llm_response["data"]["candidates"][0]["content"]["parts"][0]["text"]
                 st.markdown(ai_text)
             else:
-                error_msg = llm_response.text[:250] if llm_response else "Max retries exceeded"
-                st.warning(f"Failed to fetch AI payload. Defaulting to strict analytical engine. Details: {error_msg}")
+                st.warning(f"Failed to fetch AI payload. Defaulting to strict analytical engine. Details: {llm_response['message']}")
                 gemini_api_key = None
 
     if not gemini_api_key:
@@ -783,10 +778,9 @@ with tab_chat:
                     
                     llm_chat_resp = call_gemini_with_retries(gemini_api_key_clean, payload_chat)
                     
-                    if llm_chat_resp and llm_chat_resp.status_code == 200:
-                        ai_response = llm_chat_resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    if llm_chat_resp["status"] == "success":
+                        ai_response = llm_chat_resp["data"]["candidates"][0]["content"]["parts"][0]["text"]
                         message_placeholder.markdown(ai_response)
                         st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
                     else:
-                        error_msg = llm_chat_resp.text[:200] if llm_chat_resp else "Max retries exceeded"
-                        message_placeholder.error(f"Error communicating with AI API. Details: {error_msg}")
+                        message_placeholder.error(f"Error communicating with AI API. Details: {llm_chat_resp['message']}")
