@@ -57,12 +57,12 @@ allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
 allWeeks = sorted(list(df_raw['week'].dropna().unique()))
 
-# --- 3. Sidebar Timeframe Configuration Engine ---
+# --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
 exclude_incomplete = st.sidebar.checkbox("Exclude trailing incomplete week metrics", value=False)
 
-# Grounding processing clock to June 2026 reporting frame context
+# Grounding processing clock to execution window matrix (June 2026 Reporting Window)
 operational_today = date(2026, 6, 22)
 
 if exclude_incomplete:
@@ -318,12 +318,13 @@ def display_replicated_table(df, key_prefix):
 tab_ui, tab_rca = st.tabs(["📊 Funnel view", "✨ AI Summary"])
 
 # ==========================================
-# RENDER SCOPE: FUNNEL VIEW METRICS ENGINE
+# RENDER TAB: EXECUTIVE REPLICATED FUNNEL
 # ==========================================
 with tab_ui:
-    st.markdown("### Overall funnel — Jun vs May")
+    st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
     fo = payload["overall_funnel"]
     
+    # Theme-Isolated KPI Blocks
     st.components.v1.html(f"""
     <style>
         body {{ background-color: transparent; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
@@ -335,10 +336,10 @@ with tab_ui:
         .up {{ color: #4a9e2f; font-weight: 600; }} .dn {{ color: #e05252; font-weight: 600; }}
     </style>
     <div class="row">
-        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS</div><div class="sub">May: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique</div><div class="sub">May: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">OB</div><div class="sub">May: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">FT</div><div class="sub">May: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">LS (Ingress Pool)</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique Filters</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">Placements (FT)</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
     </div>
     """, height=115)
 
@@ -372,7 +373,7 @@ with tab_ui:
 
 
 # ==========================================
-# RENDER SCOPE: EX-SUMMARY TAB (RCA ENGINE)
+# RENDER SCOPE: STRATEGIC EX-SUMMARY (RCA)
 # ==========================================
 with tab_rca:
     st.markdown("## ⚙️ Strategic Root Cause Analysis — Volume-Weighted Impact Models")
@@ -397,9 +398,9 @@ with tab_rca:
     payload_rca = build_html_metric_payload(df_rca_curr, df_rca_prev)
     fo_rca = payload_rca["overall_funnel"]
     
-    st.markdown("### A. Overall view")
+    st.markdown("### A. Macro Pipeline Volume Attrition Analysis")
     if fo_rca["ft_delta"] < 0:
-        st.error(f"🔴 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
+        st.error(f"🚨 **Operational Deficit Detected:** Full pipeline output shifted by **{fo_rca['ft_delta']:,} Net Placements (FT)** inside selected configuration boundaries.")
         
         rca_bullets = []
         if fo_rca["fp_dp"] < 0:
@@ -472,7 +473,7 @@ with tab_rca:
                     <span style='color: #e05252 !important; font-weight: 600;'>{account['ft_abs']:,} Placements Variance Loss</span>
                 </div>
             </div>
-            """, unsafe_wrap_html=True)
+            """, unsafe_allow_html=True) # <-- Fixed unsafe_wrap_html typo permanently here!
             
             if account["bottlenecks"]:
                 st.markdown("**Identified Local Loss Metrics:**")
