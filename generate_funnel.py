@@ -315,6 +315,69 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
 
+# --- Dedicated HTML Renderer for Rolling Trends Table ---
+def display_trend_table(df_trend, group_cols, key_prefix):
+    if df_trend.empty:
+        st.write("No trend data available for selected parameters.")
+        return
+        
+    grp = df_trend.groupby(group_cols)[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
+    grp['Uniq%'] = grp.apply(lambda r: round(r['uniq']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
+    grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
+    grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
+    
+    if 'client' in group_cols:
+        grp = grp.sort_values(by=['client', 'week'], ascending=[True, False])
+    else:
+        grp = grp.sort_values(by=['week'], ascending=[False])
+        
+    headers = [col.title() for col in group_cols] + ["Lead Share (LS)", "Unique", "Uniq%", "Onboarded (OB)", "OB%", "First Trips (FT)", "FT/OB%"]
+    
+    html = f"<table id='trend_{key_prefix}'><thead><tr>"
+    for h in headers: html += f"<th>{h}</th>"
+    html += "</tr></thead><tbody>"
+    
+    for _, r in grp.iterrows():
+        html += "<tr>"
+        for idx, col in enumerate(group_cols):
+            # Freeze only the very first column mathematically
+            css_class = "bold sticky-col" if idx == 0 else "bold"
+            html += f"<td class='{css_class}'>{r[col]}</td>"
+            
+        html += f"<td>{int(r['ls']):,}</td>"
+        html += f"<td>{int(r['uniq']):,}</td>"
+        html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
+        html += f"<td>{int(r['ob']):,}</td>"
+        html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
+        html += f"<td class='bold'>{int(r['ft']):,}</td>"
+        html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
+        html += "</tr>"
+        
+    html += "</tbody></table>"
+    
+    st.iframe(f"""
+    <style>
+        body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
+        .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
+        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
+        th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; box-shadow: 0 1px 0 #eceae4; }}
+        td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
+        tr:hover td {{ background-color: #f7f6f3 !important; }}
+        
+        td:first-child, th:first-child {{ position: sticky; left: 0; z-index: 1; border-right: 1px solid rgba(0,0,0,0.08); }}
+        td:first-child {{ background-color: #ffffff; }}
+        tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
+        th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
+
+        .bold {{ font-weight: 600; color: #111111 !important; }}
+        .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
+        .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
+        .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
+        .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
+    </style>
+    <div class="table-container">{html}</div>
+    """, height=max(140, min(550, len(grp)*32 + 50)))
+
 # --- Hardened API Retry Engine ---
 def call_gemini_with_retries(api_key, payload, max_retries=3):
     models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]
@@ -436,7 +499,7 @@ def build_html_metric_payload(df_c, df_p):
 payload = build_html_metric_payload(df_curr, df_prev)
 
 # --- 7. Layout Nav Tabs Initialization ---
-tab_ui, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "✨ AI Summary", "💬 Ask AI"])
+tab_ui, tab_trends, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "📈 Rolling Trends", "✨ AI Summary", "💬 Ask AI"])
 
 # ==========================================
 # RENDER TAB: EXECUTIVE REPLICATED FUNNEL
@@ -472,7 +535,6 @@ with tab_ui:
     st.markdown("#### Region Cut")
     display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
-    # ----- DYNAMIC TOP N DRILLDOWNS -----
     st.markdown("#### VL Cut — Configurable Volume Scan")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
@@ -533,54 +595,25 @@ with tab_ui:
         df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
 
-    st.markdown("#### Client × Product Type Drilldown")
-    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
-    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
-    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
-    
-    drilled_rows_product = []
-    if "All" in selected_client_product or not selected_client_product:
-        for c, data in payload["funnel_drill"].items():
-            for row in data["by_product"]:
-                drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
-    else:
-        for cl_isolate in selected_client_product:
-            if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_product", []):
-                    drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-                    
-    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
-    if not df_s6.empty:
-        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
 
-    st.markdown("#### Region × VL Drilldown")
-    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
-    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+# ==========================================
+# RENDER TAB: ROLLING TRENDS (NEW TAB)
+# ==========================================
+with tab_trends:
+    st.markdown("## 📈 Rolling Week-on-Week Performance")
+    st.caption("Review historical funnel metrics leading up to the selected Master Week Slicer anchor.")
     
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
-    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
-    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
+    rolling_n = st.slider("Select Configurable N Weeks", min_value=2, max_value=12, value=5, help="Number of historical weeks to look backwards from the Master Week.")
     
-    drilled_rows_region_vl = []
-    if "All" in selected_region_vl or not selected_region_vl:
-        for r, data in payload["region_drill"].items():
-            for row in data["by_vl"]:
-                drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
-    else:
-        for rg_isolate in selected_region_vl:
-            if rg_isolate in payload["region_drill"]:
-                for row in payload["region_drill"][rg_isolate].get("by_vl", []):
-                    drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
-                    
-    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
-    if not df_s11.empty:
-        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
+    # Calculate exactly N weeks backwards from the anchor week
+    trend_target_weeks = [w for w in allWeeks if w <= anchor_week][:rolling_n]
+    df_trend_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(trend_target_weeks)])
+    
+    st.markdown("#### 1. Overall Pipeline Trend")
+    display_trend_table(df_trend_raw, ['week'], "overall_trend")
+    
+    st.markdown("#### 2. Client × Week Breakdown")
+    display_trend_table(df_trend_raw, ['client', 'week'], "client_trend")
 
 
 # ==========================================
@@ -622,11 +655,15 @@ with tab_rca:
         fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
         fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
         
+        up_dp = round(up_j - up_m, 2)
+        op_dp = round(op_j - op_m, 2)
+        fp_dp = round(fp_j - fp_m, 2)
+        
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), 
-            "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
-            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
+            "up_j": up_j, "up_m": up_m, "up_dp": up_dp, 
+            "op_j": op_j, "op_m": op_m, "op_dp": op_dp, 
+            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": fp_dp
         })
 
     laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
@@ -792,11 +829,15 @@ with tab_chat:
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
-                with st.spinner("Analyzing deep data structures..."):
+                with st.spinner("Analyzing rolling 5-week deep data structures..."):
                     
-                    # DYNAMIC TIMELINE TREE COMPILER (Client x VL x Week Grain)
-                    # We group the entire active raw database slice chronologically
-                    df_chat_weeks = df_curr.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
+                    # ENHANCED DEEP DATA CHRONOLOGY INJECTION FOR CHAT INTERFACE
+                    # We decouple the chat from df_curr and pull exactly the last 5 weeks of raw data
+                    # up to the currently selected Master Week anchor.
+                    chat_target_weeks = [w for w in allWeeks if w <= anchor_week][:5]
+                    df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
+                    
+                    df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
                     weekly_chronology_tree = {}
                     for _, row in df_chat_weeks.iterrows():
@@ -810,27 +851,27 @@ with tab_chat:
                             weekly_chronology_tree[c][vl] = {}
                             
                         weekly_chronology_tree[c][vl][wk] = {
-                            "Lead_Share_LS_Referred": int(row['ls']),
-                            "Uniqueness_Accepted_By_Client": int(row['uniq']),
-                            "Onboarded_OB_Activated": int(row['ob']),
-                            "First_Trips_FT_Completed": int(row['ft'])
+                            "Lead_Share_LS": int(row['ls']),
+                            "Uniqueness": int(row['uniq']),
+                            "Onboarded_OB": int(row['ob']),
+                            "First_Trips_FT": int(row['ft'])
                         }
                     
                     context_data = {
                         "macro_summary_aggregates": fo_rca,
-                        "chronological_week_on_week_client_x_vl_funnel_tree": weekly_chronology_tree
+                        "chronological_rolling_5_week_client_x_vl_funnel_tree": weekly_chronology_tree
                     }
                     
-                    # System instructions enforce strict ecosystem domain mapping
                     system_guideline = (
                         "You are an expert Executive Operations Data Analyst reporting directly to the CEO.\n"
                         "CRITICAL STRUCTURAL RULES FOR THE BUSINESS TAXONOMY:\n"
-                        "1. CLIENTS are purchasing enterprises (e.g., Swiggy, Blinkit, Zomato, Swiggy Instamart). Never call them vendors.\n"
-                        "2. VAHAN LEADERS (VLs) are third-party manpower sourcing vendors (e.g., My Smart Buy, Agile Careers, Runner Jobs) who recruit and supply workers TO clients.\n"
-                        "3. NEVER confuse a Client with a VL. Never compare them as equal groups.\n\n"
+                        "1. CLIENTS are purchasing enterprises (e.g., Swiggy, Blinkit, Zomato). Never call them vendors.\n"
+                        "2. VAHAN LEADERS (VLs) are third-party manpower sourcing vendors who recruit and supply workers TO clients.\n"
+                        "3. NEVER confuse a Client with a VL.\n\n"
                         "ROOT CAUSE ANALYSIS (RCA) EXECUTION MATRIX:\n"
-                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness ➔ Lead Share (LS).\n"
-                        "Track anomalies week-on-week chronologically using the provided tree to map specific drops directly back to the Client x VL interface."
+                        "You have been provided with a deep chronology tree representing EXACTLY the last 5 rolling weeks of data for every Client and VL combination. "
+                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness ➔ Lead Share (LS). "
+                        "Identify the exact week and exact VL driving the client's drop."
                     )
                     
                     gemini_history = [{"role": "user", "parts": [{"text": system_guideline}]}]
