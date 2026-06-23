@@ -4,6 +4,8 @@ import numpy as np
 import requests
 import json
 import time
+import io
+import zipfile
 from datetime import date, timedelta
 
 # --- Executive Dashboard Configuration ---
@@ -126,6 +128,15 @@ df_prev = apply_dimensional_filters(df_raw[(df_raw['day'] >= prev_start) & (df_r
 
 st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
+# --- ZIP Downloader Helper Engine (Hardened w/ 'w' mode) ---
+def create_zip_download(file_dict):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for file_name, df in file_dict.items():
+            if df is not None and not df.empty:
+                zip_file.writestr(f"{file_name}.csv", df.to_csv(index=False))
+    return zip_buffer.getvalue()
+
 # --- 5. Global Core Data Sorters & Tables Formatting Engines ---
 def get_colored_delta(v, suffix=""):
     if v is None or pd.isna(v): return "—"
@@ -193,7 +204,7 @@ def display_replicated_table(df, key_prefix):
         formatted_html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
         formatted_html += f"<td><span class='{uniq_class}'>{r['Unique Jun']:,}</span></td>"
-        formatted_html += f"<td class='fl'>{r['Unique May']:,}</td>"
+        formatted_html += f"<td><span class='fl'>{r['Unique May']:,}</span></td>"
         formatted_html += f"<td>{get_colored_delta(r['Unique Δ'])}</td>"
         formatted_html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['Uniq Δpp'], 'pp')}</td>"
@@ -252,10 +263,10 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
 
-def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
+# --- Dedicated HTML Renderer for Rolling Trends Table ---
+def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
     if df_trend.empty:
-        st.write("No trend data available for selected parameters.")
-        return
+        return pd.DataFrame()
         
     grp = df_trend.groupby(group_cols)[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
     grp['Uniq%'] = grp.apply(lambda r: round(r['uniq']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
@@ -298,7 +309,12 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
         grp = grp.sort_values(by=['week'], ascending=[False])
 
     grp = grp.replace([np.inf, -np.inf], np.nan)
-    grp = grp.where(pd.notnull(grp), None)
+    return grp.where(pd.notnull(grp), None)
+
+def display_trend_html(grp, group_cols, key_prefix):
+    if grp is None or grp.empty:
+        st.write("No trend data available for selected parameters.")
+        return
         
     headers = [col.replace('_', ' ').title() for col in group_cols] + [
         "LS", "LS Δ", "LS Δ%", "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
@@ -314,12 +330,12 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
         for idx, col in enumerate(group_cols):
             css_class = "bold sticky-col" if idx == 0 else "bold"
             html += f"<td class='{css_class}'>{r[col]}</td>"
-        html += f"<td>{int(r['ls']):,}</td><td>{get_colored_delta(r['LS Δ'])}</td><td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
-        html += f"<td>{int(r['uniq']):,}</td><td>{get_colored_delta(r['Uniq Δ'])}</td><td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
+        html += f"<td>{int(r['ls']) if r['ls'] is not None else 0:,}</td><td>{get_colored_delta(r['LS Δ'])}</td><td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
+        html += f"<td>{int(r['uniq']) if r['uniq'] is not None else 0:,}</td><td>{get_colored_delta(r['Uniq Δ'])}</td><td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td><td>{get_colored_delta(r['Uniq% Δpp'], 'pp')}</td>"
-        html += f"<td>{int(r['ob']):,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
+        html += f"<td>{int(r['ob']) if r['ob'] is not None else 0:,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td><td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
-        html += f"<td class='bold'>{int(r['ft']):,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
+        html += f"<td class='bold'>{int(r['ft']) if r['ft'] is not None else 0:,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td><td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td></tr>"
     html += "</tbody></table>"
     
@@ -336,6 +352,9 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -365,8 +384,7 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
                 elif resp.status_code in [429, 503]:  
                     last_error = f"Model {model} rate limited (Status {resp.status_code})."
                     if attempt < max_retries - 1:
-                        sleep_time = (2 ** attempt) * 4 
-                        time.sleep(sleep_time)
+                        time.sleep((2 ** attempt) * 4)
                         continue
                     break 
                 else:
@@ -459,7 +477,54 @@ tab_ui, tab_trends, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "📈 Rolli
 # RENDER TAB: EXECUTIVE REPLICATED FUNNEL
 # ==========================================
 with tab_ui:
-    st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
+    # --- PRE-COMPILE ALL DATA FOR DOWNLOADS FIRST ---
+    df_client_full = transform_to_replicated_dataframe(payload["by_client"])
+    df_product_full = transform_to_replicated_dataframe(payload["by_product"])
+    df_region_full = transform_to_replicated_dataframe(payload["by_region"])
+    df_vl_full = transform_to_replicated_dataframe(payload["by_vl"])
+    
+    # Pre-compile the un-filtered Drilldown Arrays
+    all_drill_vl = []
+    all_drill_reg = []
+    all_drill_prod = []
+    for c, data in payload["funnel_drill"].items():
+        for row in data.get("by_vl", []): all_drill_vl.append({**row, "dim": f"{c} · {row['dim']}"})
+        for row in data.get("by_region", []): all_drill_reg.append({**row, "dim": f"{c} · {row['dim']}"})
+        for row in data.get("by_product", []): all_drill_prod.append({**row, "dim": f"{c} · {row['dim']}"})
+
+    all_reg_vl = []
+    for r, data in payload["region_drill"].items():
+        for row in data.get("by_vl", []): all_reg_vl.append({**row, "dim": f"{r} · {row['dim']}"})
+
+    df_client_vl_full = transform_to_replicated_dataframe(all_drill_vl)
+    df_client_reg_full = transform_to_replicated_dataframe(all_drill_reg)
+    df_client_prod_full = transform_to_replicated_dataframe(all_drill_prod)
+    df_reg_vl_full = transform_to_replicated_dataframe(all_reg_vl)
+
+    tab1_dfs = {
+        "Client_Cut": df_client_full,
+        "Product_Cut": df_product_full,
+        "Region_Cut": df_region_full,
+        "VL_Cut": df_vl_full,
+        "Client_VL_Drilldown": df_client_vl_full,
+        "Client_Region_Drilldown": df_client_reg_full,
+        "Client_Product_Drilldown": df_client_prod_full,
+        "Region_VL_Drilldown": df_reg_vl_full
+    }
+
+    # Header & Button Logic Top of Page
+    col_hdr, col_dl = st.columns([8, 2])
+    with col_hdr:
+        st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
+    with col_dl:
+        st.download_button(
+            label="📥 Download All Tab Data (.zip)",
+            data=create_zip_download(tab1_dfs),
+            file_name=f"Funnel_View_Data_{curr_end}.zip",
+            mime="application/zip",
+            key="dl_tab_1"
+        )
+    
     fo = payload["overall_funnel"]
     st.iframe(f"""
     <style>
@@ -480,22 +545,24 @@ with tab_ui:
     """, height=115)
 
     st.markdown("#### Client Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
+    display_replicated_table(df_client_full, "s1")
 
     st.markdown("#### Product Type Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
+    display_replicated_table(df_product_full, "s2")
 
     st.markdown("#### Region Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
+    display_replicated_table(df_region_full, "s4")
 
     st.markdown("#### VL Cut — Configurable Volume Scan")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
     sort_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s5_sort")
     order_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s5_order")
-    df_s5 = transform_to_replicated_dataframe(payload["by_vl"])
-    if not df_s5.empty: df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s5.head(top_n_vl), "s5")
+    if not df_vl_full.empty: 
+        df_vl_view = df_vl_full.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
+        display_replicated_table(df_vl_view.head(top_n_vl), "s5")
+    else:
+        display_replicated_table(df_vl_full, "s5")
 
     st.markdown("#### Client × VL Matrix Drilldown")
     active_drill_list = sorted(list(df_raw['client'].dropna().unique()))
@@ -504,17 +571,12 @@ with tab_ui:
     top_n_drill_s9 = col1.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20, key="s9_slider")
     sort_s9 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s9_sort")
     order_s9 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s9_order")
-    drilled_rows_vl = []
-    if "All" in selected_client_drill or not selected_client_drill:
-        for c, data in payload["funnel_drill"].items():
-            for row in data["by_vl"]: drilled_rows_vl.append({**row, "dim": f"{c} · {row['dim']}"})
-    else:
-        for cl_isolate in selected_client_drill:
-            if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_vl", []): drilled_rows_vl.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-    df_s9 = transform_to_replicated_dataframe(drilled_rows_vl)
-    if not df_s9.empty: df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s9.head(top_n_drill_s9), "s9")
+    
+    df_s9_view = df_client_vl_full.copy()
+    if selected_client_drill and "All" not in selected_client_drill:
+        df_s9_view = df_s9_view[df_s9_view['Dimension'].str.split(' · ').str[0].isin(selected_client_drill)]
+    if not df_s9_view.empty: df_s9_view = df_s9_view.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s9_view.head(top_n_drill_s9), "s9")
 
     st.markdown("#### Client × Region Drilldown")
     selected_client_region = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Region)", options=["All"] + active_drill_list, default=["All"], key="s8_drill_select")
@@ -522,35 +584,78 @@ with tab_ui:
     top_n_drill_s8 = col1.slider("Select Display Window Scale (Client × Region)", min_value=5, max_value=100, value=20, key="s8_slider")
     sort_s8 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s8_sort")
     order_s8 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s8_order")
-    drilled_rows_region = []
-    if "All" in selected_client_region or not selected_client_region:
-        for c, data in payload["funnel_drill"].items():
-            for row in data["by_region"]: drilled_rows_region.append({**row, "dim": f"{c} · {row['dim']}"})
-    else:
-        for cl_isolate in selected_client_region:
-            if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_region", []): drilled_rows_region.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-    df_s8 = transform_to_replicated_dataframe(drilled_rows_region)
-    if not df_s8.empty: df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
+    
+    df_s8_view = df_client_reg_full.copy()
+    if selected_client_region and "All" not in selected_client_region:
+        df_s8_view = df_s8_view[df_s8_view['Dimension'].str.split(' · ').str[0].isin(selected_client_region)]
+    if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
+
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    
+    df_s6_view = df_client_prod_full.copy()
+    if selected_client_product and "All" not in selected_client_product:
+        df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
+    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
+
+    st.markdown("#### Region × VL Drilldown")
+    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
+    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
+    
+    df_s11_view = df_reg_vl_full.copy()
+    if selected_region_vl and "All" not in selected_region_vl:
+        df_s11_view = df_s11_view[df_s11_view['Dimension'].str.split(' · ').str[0].isin(selected_region_vl)]
+    if not df_s11_view.empty: df_s11_view = df_s11_view.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s11_view.head(top_n_drill_s11), "s11")
 
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
 # ==========================================
 with tab_trends:
-    st.markdown("## 📈 Rolling Week-on-Week Performance")
-    st.caption("Review historical funnel metrics leading up to the selected Master Week Slicer anchor.")
     
-    rolling_n = st.slider("Select Configurable N Weeks", min_value=2, max_value=12, value=5, help="Number of historical weeks to look backwards from the Master Week.")
-    
+    rolling_n = st.slider("Select Configurable N Weeks for Download & View", min_value=2, max_value=12, value=5, help="Number of historical weeks to pull.")
     trend_target_weeks = [w for w in allWeeks if w <= anchor_week][:rolling_n]
     df_trend_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(trend_target_weeks)])
     
+    # Pre-Compile Trend Dataframes
+    df_overall_trend = get_trend_dataframe(df_trend_raw, ['week'])
+    df_client_trend = get_trend_dataframe(df_trend_raw, ['client', 'week'])
+    df_vl_trend_full = get_trend_dataframe(df_trend_raw, ['vl_name', 'week'])
+    
+    tab2_dfs = {
+        "Overall_Trends": df_overall_trend,
+        "Client_Trends": df_client_trend,
+        "VL_Trends": df_vl_trend_full
+    }
+
+    col_hdr2, col_dl2 = st.columns([8, 2])
+    with col_hdr2:
+        st.markdown("## 📈 Rolling Week-on-Week Performance")
+    with col_dl2:
+        st.download_button(
+            label="📥 Download All Tab Data (.zip)",
+            data=create_zip_download(tab2_dfs),
+            file_name=f"Rolling_Trends_Data_{curr_end}.zip",
+            mime="application/zip",
+            key="dl_tab_2"
+        )
+    st.caption("Review historical funnel metrics leading up to the selected Master Week Slicer anchor.")
+    
     st.markdown("#### 1. Overall Pipeline Trend")
-    display_trend_table(df_trend_raw, ['week'], "overall_trend")
+    display_trend_html(df_overall_trend, ['week'], "overall_trend")
     
     st.markdown("#### 2. Client × Week Breakdown")
-    display_trend_table(df_trend_raw, ['client', 'week'], "client_trend")
+    display_trend_html(df_client_trend, ['client', 'week'], "client_trend")
     
     st.markdown("#### 3. VL × Week Breakdown (Filtered by Client)")
     active_trend_clients = sorted(list(df_trend_raw['client'].dropna().unique()))
@@ -561,14 +666,15 @@ with tab_trends:
     sort_trend_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="trend_vl_sort")
     order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
 
-    df_trend_vl = df_trend_raw.copy()
     df_rank_curr = df_curr.copy()
     df_rank_prev = df_prev.copy()
 
     if "All" not in trend_client_filter and trend_client_filter:
-        df_trend_vl = df_trend_vl[df_trend_vl['client'].isin(trend_client_filter)]
+        df_vl_trend_view = df_trend_raw[df_trend_raw['client'].isin(trend_client_filter)].copy()
         df_rank_curr = df_rank_curr[df_rank_curr['client'].isin(trend_client_filter)]
         df_rank_prev = df_rank_prev[df_rank_prev['client'].isin(trend_client_filter)]
+    else:
+        df_vl_trend_view = df_trend_raw.copy()
 
     vl_trend_payload = build_html_metric_payload(df_rank_curr, df_rank_prev)["by_vl"]
     df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
@@ -577,9 +683,10 @@ with tab_trends:
     if not df_vl_ranking.empty:
         df_vl_ranking = df_vl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_vl], ascending=(order_trend_vl == "Bottom Performers (Degrowing)"))
         top_vls_list = df_vl_ranking.head(top_n_trend_vl)["Dimension"].tolist()
-        df_trend_vl = df_trend_vl[df_trend_vl['vl_name'].isin(top_vls_list)]
+        df_vl_trend_view = df_vl_trend_view[df_vl_trend_view['vl_name'].isin(top_vls_list)]
         
-    display_trend_table(df_trend_vl, ['vl_name', 'week'], "vl_trend", dimension_order=top_vls_list)
+    df_final_vl_render = get_trend_dataframe(df_vl_trend_view, ['vl_name', 'week'], dimension_order=top_vls_list)
+    display_trend_html(df_final_vl_render, ['vl_name', 'week'], "vl_trend")
 
 # ==========================================
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
@@ -797,19 +904,15 @@ with tab_chat:
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
                     df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
-                    # --- CRITICAL PAYLOAD SIZE PRUNER ENGINE ---
-                    # To absolutely prevent 429 payload blocks, evaluate absolute volumetric change per Supplier
                     df_w_first = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[-1]].groupby(['client', 'vl_name'])['ft'].sum()
                     df_w_last = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[0]].groupby(['client', 'vl_name'])['ft'].sum()
                     vl_deltas = (df_w_last - df_w_first).reset_index(name='delta')
                     
-                    # Isolate Top 20 absolute growers and Top 20 absolute laggards (The Anomaly Vectors)
                     significant_vls = pd.concat([
                         vl_deltas.sort_values(by='delta', ascending=False).head(20),
                         vl_deltas.sort_values(by='delta', ascending=True).head(20)
                     ]).drop_duplicates(subset=['client', 'vl_name'])
                     
-                    # Filter data grid down explicitly to these rows before sending text over the wire
                     df_chat_weeks_pruned = df_chat_weeks[df_chat_weeks.set_index(['client', 'vl_name']).index.isin(significant_vls.set_index(['client', 'vl_name']).index)]
                     csv_context = df_chat_weeks_pruned.to_csv(index=False)
                     
