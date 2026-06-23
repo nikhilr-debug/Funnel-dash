@@ -252,7 +252,6 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
 
-# --- Dedicated HTML Renderer for Rolling Trends Table (DYNAMIC WOW DELTAS) ---
 def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
     if df_trend.empty:
         st.write("No trend data available for selected parameters.")
@@ -337,6 +336,9 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -364,7 +366,7 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
                     last_error = f"Model {model} deprecated (404)."
                     break 
                 elif resp.status_code in [429, 503]:  
-                    last_error = f"Model {model} overloaded (Status {resp.status_code})."
+                    last_error = f"Model {model} rate limited (Status {resp.status_code}). Payload size triggered a block."
                     if attempt < max_retries - 1:
                         sleep_time = (2 ** attempt) * 3 
                         time.sleep(sleep_time)
@@ -837,32 +839,19 @@ with tab_chat:
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
-                with st.spinner("Analyzing rolling 5-week deep data structures (Token Compressed)..."):
+                with st.spinner("Analyzing rolling 5-week deep data structures (Token Compressed CSV Engine)..."):
                     
                     chat_target_weeks = [w for w in allWeeks if w <= anchor_week][:5]
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
+                    
+                    # Token Optimization: Build CSV string directly instead of heavy JSON
                     df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
-                    weekly_chronology_tree = {}
-                    for _, row in df_chat_weeks.iterrows():
-                        c = str(row['client'])
-                        vl = str(row['vl_name'])
-                        wk = str(row['week'])
-                        
-                        if c not in weekly_chronology_tree: weekly_chronology_tree[c] = {}
-                        if vl not in weekly_chronology_tree[c]: weekly_chronology_tree[c][vl] = {}
-                            
-                        weekly_chronology_tree[c][vl][wk] = {
-                            "LS": int(row['ls']),
-                            "UQ": int(row['uniq']),
-                            "OB": int(row['ob']),
-                            "FT": int(row['ft'])
-                        }
+                    # Noise Filter: Drop any VLs that literally sent 0 leads and got 0 First Trips over the 5 weeks
+                    df_chat_weeks = df_chat_weeks[(df_chat_weeks['ls'] > 0) | (df_chat_weeks['ft'] > 0)]
                     
-                    context_data = {
-                        "macro": fo_rca,
-                        "chrono_tree": weekly_chronology_tree
-                    }
+                    # Convert to minimal CSV format
+                    csv_context = df_chat_weeks.to_csv(index=False)
                     
                     system_guideline = (
                         "You are an expert Executive Operations Data Analyst reporting directly to the CEO.\n"
@@ -871,8 +860,8 @@ with tab_chat:
                         "2. VAHAN LEADERS (VLs) are third-party manpower sourcing vendors who recruit and supply workers TO clients.\n"
                         "3. NEVER confuse a Client with a VL.\n\n"
                         "ROOT CAUSE ANALYSIS (RCA) EXECUTION MATRIX:\n"
-                        "You have been provided with a deep chronology tree representing EXACTLY the last 5 rolling weeks of data for every Client and VL combination. "
-                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness (UQ) ➔ Lead Share (LS). "
+                        "You have been provided with a raw CSV representing EXACTLY the last 5 rolling weeks of data for every active Client and VL combination. "
+                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness (uniq) ➔ Lead Share (ls). "
                         "Identify the exact week and exact VL driving the client's drop."
                     )
                     
@@ -881,7 +870,7 @@ with tab_chat:
                         gemini_role = "user" if m["role"] == "user" else "model"
                         gemini_history.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
                     
-                    current_prompt_with_context = f"Database Matrix: {json.dumps(context_data)}\n\nUser Question: {prompt}"
+                    current_prompt_with_context = f"MACRO SUMMARY:\n{json.dumps(fo_rca)}\n\nROLLING 5-WEEK RAW DATA (CSV):\n{csv_context}\n\nUser Operational Question: {prompt}"
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
                     gemini_api_key_clean = gemini_api_key.strip()
