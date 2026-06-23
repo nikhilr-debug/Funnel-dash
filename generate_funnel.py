@@ -289,7 +289,6 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
     
-    # Dynamic Week-over-Week Delta Calculator (Handles dynamic primary dimensions)
     primary_dim = group_cols[0] if len(group_cols) > 1 else None
     
     if primary_dim:
@@ -305,7 +304,6 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
-        # Re-sort for display (Newest Week Top)
         grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
     else:
         grp = grp.sort_values(by=['week'], ascending=[True])
@@ -322,7 +320,6 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         grp['FT/OB% Δpp'] = grp['FT/OB%'].diff()
         grp = grp.sort_values(by=['week'], ascending=[False])
 
-    # Clean Infinities and NaNs for standard formatting
     grp = grp.replace([np.inf, -np.inf], np.nan)
     grp = grp.where(pd.notnull(grp), None)
         
@@ -561,7 +558,7 @@ with tab_ui:
     display_replicated_table(df_s5.head(top_n_vl), "s5")
 
     st.markdown("#### Client × VL Matrix Drilldown")
-    active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
+    active_drill_list = sorted(list(df_raw['client'].dropna().unique()))
     selected_client_drill = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_drill_list, default=["All"], key="s9_drill_select")
     
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -609,55 +606,6 @@ with tab_ui:
         df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
 
-    st.markdown("#### Client × Product Type Drilldown")
-    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
-    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
-    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
-    
-    drilled_rows_product = []
-    if "All" in selected_client_product or not selected_client_product:
-        for c, data in payload["funnel_drill"].items():
-            for row in data["by_product"]:
-                drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
-    else:
-        for cl_isolate in selected_client_product:
-            if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_product", []):
-                    drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-                    
-    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
-    if not df_s6.empty:
-        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
-
-    st.markdown("#### Region × VL Drilldown")
-    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
-    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
-    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
-    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
-    
-    drilled_rows_region_vl = []
-    if "All" in selected_region_vl or not selected_region_vl:
-        for r, data in payload["region_drill"].items():
-            for row in data["by_vl"]:
-                drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
-    else:
-        for rg_isolate in selected_region_vl:
-            if rg_isolate in payload["region_drill"]:
-                for row in payload["region_drill"][rg_isolate].get("by_vl", []):
-                    drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
-                    
-    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
-    if not df_s11.empty:
-        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
-
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
 # ==========================================
@@ -686,8 +634,6 @@ with tab_trends:
     order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
 
     df_trend_vl = df_trend_raw.copy()
-    
-    # Base Current/Prev Data for Ranking the Top N VLs accurately
     df_rank_curr = df_curr.copy()
     df_rank_prev = df_prev.copy()
 
@@ -696,7 +642,6 @@ with tab_trends:
         df_rank_curr = df_rank_curr[df_rank_curr['client'].isin(trend_client_filter)]
         df_rank_prev = df_rank_prev[df_rank_prev['client'].isin(trend_client_filter)]
 
-    # Rank VLs based on the Master Week window
     vl_trend_payload = build_html_metric_payload(df_rank_curr, df_rank_prev)["by_vl"]
     df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
     
@@ -746,15 +691,11 @@ with tab_rca:
         fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
         fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
         
-        up_dp = round(up_j - up_m, 2)
-        op_dp = round(op_j - op_m, 2)
-        fp_dp = round(fp_j - fp_m, 2)
-        
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": up_dp, 
-            "op_j": op_j, "op_m": op_m, "op_dp": op_dp, 
-            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": fp_dp
+            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), 
+            "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
+            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
         })
 
     laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
@@ -864,6 +805,10 @@ with tab_rca:
     if not laggard_clients:
         st.info("No deficit vectors logged across business channels matching current tracking parameters.")
     else:
+        # Pre-compile the rolling historical dictionary specifically to run the rolling volatility scanners
+        rolling_n_weeks = [w for w in allWeeks if w <= anchor_week][:5]
+        df_h5 = df_raw[df_raw['week'].isin(rolling_n_weeks)]
+
         for client in laggard_clients:
             st.markdown(f"""
             <div style='background: #ffffff !important; border: 0.5px solid rgba(0,0,0,0.08); border-left: 4px solid #e05252; border-radius: 8px; padding: 12px; margin-bottom: 12px;'>
@@ -874,6 +819,7 @@ with tab_rca:
             </div>
             """, unsafe_allow_html=True)
             
+            # Global baseline checkpoint deltas
             client_bullets = []
             if client["fp_dp"] < 0:
                 client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_m']:.1f}% to {client['fp_j']:.1f}%).</li>")
@@ -887,15 +833,65 @@ with tab_rca:
             if client_bullets:
                 st.markdown(f"<ul>{''.join(client_bullets)}</ul>", unsafe_allow_html=True)
             
-            vl_drill_source = payload_rca["funnel_drill"].get(client["name"], {}).get("by_vl", [])
-            vl_analysis_frame = transform_to_replicated_dataframe(vl_drill_source)
-            if not vl_analysis_frame.empty and "FT Δ" in vl_analysis_frame.columns:
-                worst_performing_vls = vl_analysis_frame[vl_analysis_frame["FT Δ"] < 0].sort_values(by="FT Δ").head(3)
-                if not worst_performing_vls.empty:
-                    st.markdown("**Top-3 Contributing Laggard VLs:**")
-                    for _, v_row in worst_performing_vls.iterrows():
-                        st.markdown(f"- 📉 Laggard **{v_row['Dimension']}**: Net Deficit of :red[{abs(v_row['FT Δ'])}] Completed First Trips (Jun: {v_row['FT (First Trip) Jun']} vs May: {v_row['FT (First Trip) May']})")
+            # --- ADVANCED GRANULAR BACKWARD CHECKPOINT DIAGNOSTICS SCANNER ---
+            df_vl_c = df_curr[df_curr['client'] == client['name']].groupby('vl_name')[['ls', 'uniq', 'ob', 'ft']].sum()
+            df_vl_p = df_prev[df_prev['client'] == client['name']].groupby('vl_name')[['ls', 'uniq', 'ob', 'ft']].sum()
+            df_matrix = df_vl_c.join(df_vl_p, lsuffix='_c', rsuffix='_p', how='outer').fillna(0)
+            
+            df_matrix['ft_diff'] = df_matrix['ft_c'] - df_matrix['ft_p']
+            df_matrix['ob_diff'] = df_matrix['ob_c'] - df_matrix['ob_p']
+            df_matrix['uniq_diff'] = df_matrix['uniq_c'] - df_matrix['uniq_p']
+            df_matrix['ls_diff'] = df_matrix['ls_c'] - df_matrix['ls_p']
+            
+            col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+            with col_d1:
+                st.caption("📉 Top-3 Laggard VLs: **FT Deficit**")
+                for v, r in df_matrix[df_matrix['ft_diff'] < 0].sort_values(by='ft_diff').head(3).iterrows():
+                    st.markdown(f"- **{v}**: `{int(r['ft_diff'])}` FT")
+            with col_d2:
+                st.caption("📉 Top-3 Laggard VLs: **OB Deficit**")
+                for v, r in df_matrix[df_matrix['ob_diff'] < 0].sort_values(by='ob_diff').head(3).iterrows():
+                    st.markdown(f"- **{v}**: `{int(r['ob_diff'])}` OB")
+            with col_d3:
+                st.caption("📉 Top-3 Laggard VLs: **Uniqueness Deficit**")
+                for v, r in df_matrix[df_matrix['uniq_diff'] < 0].sort_values(by='uniq_diff').head(3).iterrows():
+                    st.markdown(f"- **{v}**: `{int(r['uniq_diff'])}` Uniq")
+            with col_d4:
+                st.caption("📉 Top-3 Laggard VLs: **LS Volume Deficit**")
+                for v, r in df_matrix[df_matrix['ls_diff'] < 0].sort_values(by='ls_diff').head(3).iterrows():
+                    st.markdown(f"- **{v}**: `{int(r['ls_diff'])}` LS")
+
+            # --- SCANNER 2: THE PENETRATION TRAP PATTERN SCANNER ---
+            # Identifies where a supplier increased referred volume significantly (>= 10%) but suffered a dip in candidate database uniqueness
             st.markdown("<br>", unsafe_allow_html=True)
+            trap_vl_alerts = []
+            for v, r in df_matrix.iterrows():
+                if r['ls_p'] > 0:
+                    ls_growth_pct = (r['ls_diff'] / r['ls_p']) * 100
+                    if ls_growth_pct >= 10.0 and r['uniq_diff'] < 0:
+                        trap_vl_alerts.append(f"<li>⚠️ <strong>Penetration Trap Warning:</strong> Supplier <strong>{v}</strong> expanded referred volume ingress significantly (<strong>+{ls_growth_pct:.1f}% LS</strong>), yet suffered a flat or net negative conversion layer collapse (<strong>{int(r['uniq_diff'])} verified Unique Leads</strong>). Indicates duplicate profiles or poor database quality pool.</li>")
+            if trap_vl_alerts:
+                st.markdown(f"<ul style='list-style-type: none; padding-left: 0;'>{''.join(trap_vl_alerts)}</ul>", unsafe_allow_html=True)
+
+            # --- SCANNER 3: 5-WEEK ROLLING FUNNEL CONVERSION INSTABILITY ENGINE ---
+            # Checks for standard deviation / variance trends across last 5 weeks on key rates
+            df_h5_client = df_h5[df_h5['client'] == client['name']].groupby(['vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
+            unstable_vl_alerts = []
+            
+            if not df_h5_client.empty:
+                for v in df_h5_client['vl_name'].unique():
+                    v_timeline = df_h5_client[df_h5_client['vl_name'] == v].sort_values('week')
+                    if len(v_timeline) >= 3:
+                        v_timeline['conv_rate'] = v_timeline.apply(lambda row: (row['ft'] / row['ls']) if row['ls'] > 0 else 0.0, axis=1)
+                        rate_variance = v_timeline['conv_rate'].std()
+                        # Highlight conversion rates tracking a high standard deviation (>= 15% conversion jitter)
+                        if rate_variance > 0.15:
+                            unstable_vl_alerts.append(v)
+                            
+            if unstable_vl_alerts:
+                st.warning(f"🔄 **Erratic Conversion Notice:** The following field leaders logged high funnel conversion inconsistency basis 5-weeks rolling historical parameters: `{', '.join(unstable_vl_alerts[:4])}`")
+            
+            st.markdown("<hr style='margin:15px 0; border:0.5px dashed rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
 
 # ==========================================
 # RENDER SCOPE: AI CHATBOT INTERFACE
