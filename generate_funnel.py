@@ -800,7 +800,8 @@ with tab_rca:
                         "text": f"You are a Senior Data Analyst reporting directly to the CEO. Write a clean, professional, concise metric conversion narrative briefing based on this comprehensive snapshot: {json.dumps(context_payload)}. "
                                 f"Terminology rules: LS is Lead Share (referred leads pool). Uniqueness means new to the client's database. OB means Onboarding/Activation. FT means completed First Trip. "
                                 f"Work backward down the funnel steps from FT to explain why changes happened and pinpoint whether specific Clients, VLs, Regions, CLs, or AMs originated the shift. "
-                                f"Do not use complex technical terms or harsh keywords. Keep it clear, supportive, and completely direct to the point."
+                                f"Do not use complex technical terms or harsh keywords. Keep it clear, supportive, and completely direct to the point. "
+                                f"CRITICAL: Do not include any memo or email headers (like To, From, Date, Subject) and do not use introductory greetings. Output ONLY the analysis and summary directly."
                     }]
                 }]
             }
