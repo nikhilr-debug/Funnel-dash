@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
 import json
 import time
@@ -135,7 +136,7 @@ st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_
 
 # --- 5. Global Core Data Sorters & Tables Formatting Engines ---
 def get_colored_delta(v, suffix=""):
-    if v is None: return "—"
+    if v is None or pd.isna(v): return "—"
     if v == 0: return f"0{suffix}"
     cl = "up" if v > 0 else "dn"
     sign = "+" if v > 0 else ""
@@ -149,6 +150,7 @@ def get_colored_delta(v, suffix=""):
     return f'<span class="{cl}">{sign}{f_val}</span>'
 
 def get_pill_pct(p, metric_type):
+    if p is None or pd.isna(p): return "—"
     v = round(p)
     if metric_type == 'uniq':
         cl = 'pg' if v >= 40 else ('pa' if v >= 20 else 'pr')
@@ -253,34 +255,13 @@ def display_replicated_table(df, key_prefix):
             box-shadow: 0 1px 0 #eceae4; 
         }}
         
-        td {{ 
-            padding: 6px 8px; 
-            border-bottom: 0.5px solid rgba(0,0,0,0.08); 
-            white-space: nowrap; 
-            color: #111111 !important; 
-            background-color: #ffffff; 
-        }}
-        
+        td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
         
-        td:first-child, th:first-child {{
-            position: sticky;
-            left: 0;
-            z-index: 1;
-            border-right: 1px solid rgba(0,0,0,0.08);
-        }}
-        td:first-child {{
-            background-color: #ffffff; 
-        }}
-        tr:hover td:first-child {{
-            background-color: #f7f6f3 !important;
-        }}
-        
-        th:first-child {{
-            z-index: 3;
-            background-color: #f7f6f3 !important;
-            border-right: 1px solid #eceae4;
-        }}
+        td:first-child, th:first-child {{ position: sticky; left: 0; z-index: 1; border-right: 1px solid rgba(0,0,0,0.08); }}
+        td:first-child {{ background-color: #ffffff; }}
+        tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
+        th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
 
         .bold {{ font-weight: 600; color: #111111 !important; }}
         .fl {{ color: #888888 !important; }}
@@ -315,23 +296,60 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
 
-# --- Dedicated HTML Renderer for Rolling Trends Table ---
+# --- Dedicated HTML Renderer for Rolling Trends Table (WITH WoW DELTAS) ---
 def display_trend_table(df_trend, group_cols, key_prefix):
     if df_trend.empty:
         st.write("No trend data available for selected parameters.")
         return
         
     grp = df_trend.groupby(group_cols)[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
+    
+    # Base Conversion Percents
     grp['Uniq%'] = grp.apply(lambda r: round(r['uniq']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
     
+    # Calculate Week-over-Week Deltas (Requires strict chronological sorting first)
     if 'client' in group_cols:
+        grp = grp.sort_values(by=['client', 'week'], ascending=[True, True])
+        grp['LS Δ'] = grp.groupby('client')['ls'].diff()
+        grp['LS Δ%'] = grp.groupby('client')['ls'].pct_change() * 100
+        grp['Uniq Δ'] = grp.groupby('client')['uniq'].diff()
+        grp['Uniq Δ%'] = grp.groupby('client')['uniq'].pct_change() * 100
+        grp['Uniq% Δpp'] = grp.groupby('client')['Uniq%'].diff()
+        grp['OB Δ'] = grp.groupby('client')['ob'].diff()
+        grp['OB Δ%'] = grp.groupby('client')['ob'].pct_change() * 100
+        grp['OB% Δpp'] = grp.groupby('client')['OB%'].diff()
+        grp['FT Δ'] = grp.groupby('client')['ft'].diff()
+        grp['FT Δ%'] = grp.groupby('client')['ft'].pct_change() * 100
+        grp['FT/OB% Δpp'] = grp.groupby('client')['FT/OB%'].diff()
+        # Re-sort for reverse chronological viewing (Newest Top)
         grp = grp.sort_values(by=['client', 'week'], ascending=[True, False])
     else:
+        grp = grp.sort_values(by=['week'], ascending=[True])
+        grp['LS Δ'] = grp['ls'].diff()
+        grp['LS Δ%'] = grp['ls'].pct_change() * 100
+        grp['Uniq Δ'] = grp['uniq'].diff()
+        grp['Uniq Δ%'] = grp['uniq'].pct_change() * 100
+        grp['Uniq% Δpp'] = grp['Uniq%'].diff()
+        grp['OB Δ'] = grp['ob'].diff()
+        grp['OB Δ%'] = grp['ob'].pct_change() * 100
+        grp['OB% Δpp'] = grp['OB%'].diff()
+        grp['FT Δ'] = grp['ft'].diff()
+        grp['FT Δ%'] = grp['ft'].pct_change() * 100
+        grp['FT/OB% Δpp'] = grp['FT/OB%'].diff()
         grp = grp.sort_values(by=['week'], ascending=[False])
+
+    # Clean Infinities and NaNs for standard formatting
+    grp = grp.replace([np.inf, -np.inf], np.nan)
+    grp = grp.where(pd.notnull(grp), None)
         
-    headers = [col.title() for col in group_cols] + ["Lead Share (LS)", "Unique", "Uniq%", "Onboarded (OB)", "OB%", "First Trips (FT)", "FT/OB%"]
+    headers = [col.title() for col in group_cols] + [
+        "LS", "LS Δ", "LS Δ%", 
+        "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
+        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", 
+        "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp"
+    ]
     
     html = f"<table id='trend_{key_prefix}'><thead><tr>"
     for h in headers: html += f"<th>{h}</th>"
@@ -340,17 +358,30 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     for _, r in grp.iterrows():
         html += "<tr>"
         for idx, col in enumerate(group_cols):
-            # Freeze only the very first column mathematically
             css_class = "bold sticky-col" if idx == 0 else "bold"
             html += f"<td class='{css_class}'>{r[col]}</td>"
             
         html += f"<td>{int(r['ls']):,}</td>"
+        html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
+        html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
+        
         html += f"<td>{int(r['uniq']):,}</td>"
+        html += f"<td>{get_colored_delta(r['Uniq Δ'])}</td>"
+        html += f"<td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
+        html += f"<td>{get_colored_delta(r['Uniq% Δpp'], 'pp')}</td>"
+        
         html += f"<td>{int(r['ob']):,}</td>"
+        html += f"<td>{get_colored_delta(r['OB Δ'])}</td>"
+        html += f"<td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
+        html += f"<td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
+        
         html += f"<td class='bold'>{int(r['ft']):,}</td>"
+        html += f"<td>{get_colored_delta(r['FT Δ'])}</td>"
+        html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
+        html += f"<td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td>"
         html += "</tr>"
         
     html += "</tbody></table>"
@@ -363,13 +394,14 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; box-shadow: 0 1px 0 #eceae4; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
-        
         td:first-child, th:first-child {{ position: sticky; left: 0; z-index: 1; border-right: 1px solid rgba(0,0,0,0.08); }}
         td:first-child {{ background-color: #ffffff; }}
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
-
         .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -595,6 +627,54 @@ with tab_ui:
         df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
 
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    
+    drilled_rows_product = []
+    if "All" in selected_client_product or not selected_client_product:
+        for c, data in payload["funnel_drill"].items():
+            for row in data["by_product"]:
+                drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
+    else:
+        for cl_isolate in selected_client_product:
+            if cl_isolate in payload["funnel_drill"]:
+                for row in payload["funnel_drill"][cl_isolate].get("by_product", []):
+                    drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
+                    
+    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
+    if not df_s6.empty:
+        df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
+
+    st.markdown("#### Region × VL Drilldown")
+    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
+    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
+    
+    drilled_rows_region_vl = []
+    if "All" in selected_region_vl or not selected_region_vl:
+        for r, data in payload["region_drill"].items():
+            for row in data["by_vl"]:
+                drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
+    else:
+        for rg_isolate in selected_region_vl:
+            if rg_isolate in payload["region_drill"]:
+                for row in payload["region_drill"][rg_isolate].get("by_vl", []):
+                    drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
+                    
+    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
+    if not df_s11.empty:
+        df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 # ==========================================
 # RENDER TAB: ROLLING TRENDS (NEW TAB)
@@ -605,7 +685,6 @@ with tab_trends:
     
     rolling_n = st.slider("Select Configurable N Weeks", min_value=2, max_value=12, value=5, help="Number of historical weeks to look backwards from the Master Week.")
     
-    # Calculate exactly N weeks backwards from the anchor week
     trend_target_weeks = [w for w in allWeeks if w <= anchor_week][:rolling_n]
     df_trend_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(trend_target_weeks)])
     
@@ -614,7 +693,6 @@ with tab_trends:
     
     st.markdown("#### 2. Client × Week Breakdown")
     display_trend_table(df_trend_raw, ['client', 'week'], "client_trend")
-
 
 # ==========================================
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
@@ -831,9 +909,6 @@ with tab_chat:
                 message_placeholder = st.empty()
                 with st.spinner("Analyzing rolling 5-week deep data structures..."):
                     
-                    # ENHANCED DEEP DATA CHRONOLOGY INJECTION FOR CHAT INTERFACE
-                    # We decouple the chat from df_curr and pull exactly the last 5 weeks of raw data
-                    # up to the currently selected Master Week anchor.
                     chat_target_weeks = [w for w in allWeeks if w <= anchor_week][:5]
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
                     
