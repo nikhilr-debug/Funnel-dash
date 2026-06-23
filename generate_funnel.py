@@ -52,10 +52,17 @@ for col in ['ls', 'uniq', 'ob', 'ft']:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0).astype(int)
 
+# Normalize vendor field availability
+if 'vendor' not in df_raw.columns and 'vendor_name' in df_raw.columns:
+    df_raw['vendor'] = df_raw['vendor_name']
+elif 'vendor' not in df_raw.columns:
+    df_raw['vendor'] = df_raw['vl_name'] # Fallback mapping if explicit field is missing
+
 # --- 2. Global Filter Dimension Definitions ---
 allClients = sorted(list(df_raw['client'].dropna().unique()))
 allRegions = sorted(list(df_raw['region'].dropna().unique()))
 allVLs = sorted(list(df_raw['vl_name'].dropna().unique()))
+allVendors = sorted(list(df_raw['vendor'].dropna().unique()))
 allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
 allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
@@ -487,6 +494,7 @@ def build_html_metric_payload(df_c, df_p):
     compiled["by_product"] = roll_dim(df_c, df_p, 'lead_referral_type') if 'lead_referral_type' in df_c.columns else roll_dim(df_c, df_p, 'client').copy()
     compiled["by_region"] = roll_dim(df_c, df_p, 'region')
     compiled["by_vl"] = roll_dim(df_c, df_p, 'vl_name')
+    compiled["by_vendor"] = roll_dim(df_c, df_p, 'vendor')
     compiled["by_cl"] = roll_dim(df_c, df_p, 'cl')
     compiled["by_am"] = roll_dim(df_c, df_p, 'am_name')
     
@@ -559,6 +567,19 @@ with tab_ui:
     if not df_s5.empty:
         df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s5.head(top_n_vl), "s5")
+
+    # --- NEW ADDITION: CONFIGURABLE VENDOR VOLUME SCAN ---
+    st.markdown("#### Vendor Cut — Configurable Volume Scan")
+    v_col1, v_col2, v_col3 = st.columns([2, 1, 1])
+    top_n_vendor = v_col1.slider("Select Display Window Scale (Vendor Cut)", min_value=5, max_value=100, value=20, key="vendor_slider")
+    sort_vendor = v_col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="vendor_sort")
+    order_vendor = v_col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="vendor_order")
+    
+    df_vendor = transform_to_replicated_dataframe(payload["by_vendor"])
+    if not df_vendor.empty:
+        df_vendor = df_vendor.sort_values(by=SORT_METRICS_MAP[sort_vendor], ascending=(order_vendor == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_vendor.head(top_n_vendor), "vendor_scan")
+    # -----------------------------------------------------
 
     st.markdown("#### Client × VL Matrix Drilldown")
     active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
