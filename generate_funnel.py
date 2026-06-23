@@ -349,7 +349,7 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
 
 # --- Token-Optimized API Retry Engine for 429 Failover ---
 def call_gemini_with_retries(api_key, payload, max_retries=4):
-    models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
     headers = {'Content-Type': 'application/json'}
     
     last_error = None
@@ -366,9 +366,9 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
                     last_error = f"Model {model} deprecated (404)."
                     break 
                 elif resp.status_code in [429, 503]:  
-                    last_error = f"Model {model} rate limited (Status {resp.status_code}). Payload size triggered a block."
+                    last_error = f"Model {model} rate limited (Status {resp.status_code})."
                     if attempt < max_retries - 1:
-                        sleep_time = (2 ** attempt) * 3 
+                        sleep_time = (2 ** attempt) * 4 
                         time.sleep(sleep_time)
                         continue
                     break 
@@ -377,13 +377,13 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
             except requests.exceptions.Timeout:
                 last_error = f"Connection to {model} Timed Out."
                 if attempt < max_retries - 1:
-                    time.sleep((2 ** attempt) * 3)
+                    time.sleep((2 ** attempt) * 4)
                     continue
                 break
             except requests.exceptions.RequestException as e:
                 last_error = f"Network Exception on {model}: {str(e)}"
                 if attempt < max_retries - 1:
-                    time.sleep((2 ** attempt) * 3)
+                    time.sleep((2 ** attempt) * 4)
                     continue
                 break
     return {"status": "error", "message": last_error}
@@ -482,14 +482,32 @@ with tab_ui:
     </div>
     """, height=115)
 
-    st.markdown("#### Client Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
+    # --- CLIENT CUT WITH DOWNLOAD BUTTON ---
+    df_client_table = transform_to_replicated_dataframe(payload["by_client"])
+    col_hdr1, col_dl1 = st.columns([8, 2])
+    with col_hdr1:
+        st.markdown("#### Client Cut")
+    with col_dl1:
+        st.download_button(label="📥 Download CSV", data=df_client_table.to_csv(index=False).encode('utf-8'), file_name=f"Client_Funnel_{curr_end}.csv", mime="text/csv", key="dl_client")
+    display_replicated_table(df_client_table, "s1")
 
-    st.markdown("#### Product Type Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
+    # --- PRODUCT CUT WITH DOWNLOAD BUTTON ---
+    df_product_table = transform_to_replicated_dataframe(payload["by_product"])
+    col_hdr2, col_dl2 = st.columns([8, 2])
+    with col_hdr2:
+        st.markdown("#### Product Type Cut")
+    with col_dl2:
+        st.download_button(label="📥 Download CSV", data=df_product_table.to_csv(index=False).encode('utf-8'), file_name=f"Product_Funnel_{curr_end}.csv", mime="text/csv", key="dl_prod")
+    display_replicated_table(df_product_table, "s2")
 
-    st.markdown("#### Region Cut")
-    display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
+    # --- REGION CUT WITH DOWNLOAD BUTTON ---
+    df_region_table = transform_to_replicated_dataframe(payload["by_region"])
+    col_hdr3, col_dl3 = st.columns([8, 2])
+    with col_hdr3:
+        st.markdown("#### Region Cut")
+    with col_dl3:
+        st.download_button(label="📥 Download CSV", data=df_region_table.to_csv(index=False).encode('utf-8'), file_name=f"Region_Funnel_{curr_end}.csv", mime="text/csv", key="dl_reg")
+    display_replicated_table(df_region_table, "s4")
 
     st.markdown("#### VL Cut — Configurable Volume Scan")
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -816,7 +834,7 @@ with tab_rca:
             st.markdown("<hr style='margin:15px 0; border:0.5px dashed rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
 
 # ==========================================
-# RENDER SCOPE: AI CHATBOT INTERFACE
+# RENDER SCOPE: AI CHATBOT INTERFACE (SMART CONTEXT PRUNING)
 # ==========================================
 with tab_chat:
     st.markdown("## 💬 Executive AI Assistant")
@@ -839,19 +857,23 @@ with tab_chat:
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
-                with st.spinner("Analyzing rolling 5-week deep data structures (Token Compressed CSV Engine)..."):
+                with st.spinner("Isolating timeline anomalies and running compression layer..."):
                     
                     chat_target_weeks = [w for w in allWeeks if w <= anchor_week][:5]
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
-                    
-                    # Token Optimization: Build CSV string directly instead of heavy JSON
                     df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
-                    # Noise Filter: Drop any VLs that literally sent 0 leads and got 0 First Trips over the 5 weeks
-                    df_chat_weeks = df_chat_weeks[(df_chat_weeks['ls'] > 0) | (df_chat_weeks['ft'] > 0)]
+                    df_w_first = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[-1]].groupby(['client', 'vl_name'])['ft'].sum()
+                    df_w_last = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[0]].groupby(['client', 'vl_name'])['ft'].sum()
+                    vl_deltas = (df_w_last - df_w_first).reset_index(name='delta')
                     
-                    # Convert to minimal CSV format
-                    csv_context = df_chat_weeks.to_csv(index=False)
+                    significant_vls = pd.concat([
+                        vl_deltas.sort_values(by='delta', ascending=False).head(20),
+                        vl_deltas.sort_values(by='delta', ascending=True).head(20)
+                    ]).drop_duplicates(subset=['client', 'vl_name'])
+                    
+                    df_chat_weeks_pruned = df_chat_weeks[df_chat_weeks.set_index(['client', 'vl_name']).index.isin(significant_vls.set_index(['client', 'vl_name']).index)]
+                    csv_context = df_chat_weeks_pruned.to_csv(index=False)
                     
                     system_guideline = (
                         "You are an expert Executive Operations Data Analyst reporting directly to the CEO.\n"
@@ -860,7 +882,7 @@ with tab_chat:
                         "2. VAHAN LEADERS (VLs) are third-party manpower sourcing vendors who recruit and supply workers TO clients.\n"
                         "3. NEVER confuse a Client with a VL.\n\n"
                         "ROOT CAUSE ANALYSIS (RCA) EXECUTION MATRIX:\n"
-                        "You have been provided with a raw CSV representing EXACTLY the last 5 rolling weeks of data for every active Client and VL combination. "
+                        "You have been provided with a prioritized anomaly CSV representing rows with the largest variance across the last 5 rolling weeks of data. "
                         "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness (uniq) ➔ Lead Share (ls). "
                         "Identify the exact week and exact VL driving the client's drop."
                     )
@@ -870,7 +892,7 @@ with tab_chat:
                         gemini_role = "user" if m["role"] == "user" else "model"
                         gemini_history.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
                     
-                    current_prompt_with_context = f"MACRO SUMMARY:\n{json.dumps(fo_rca)}\n\nROLLING 5-WEEK RAW DATA (CSV):\n{csv_context}\n\nUser Operational Question: {prompt}"
+                    current_prompt_with_context = f"MACRO SUMMARY Aggregates:\n{json.dumps(fo_rca)}\n\nPRUNED ANOMALY HISTORICAL DATA TREE (CSV):\n{csv_context}\n\nUser Operational Question: {prompt}"
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
                     gemini_api_key_clean = gemini_api_key.strip()
