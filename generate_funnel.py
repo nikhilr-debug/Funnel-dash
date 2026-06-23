@@ -238,31 +238,13 @@ def display_replicated_table(df, key_prefix):
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
         .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
         table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
-        
-        th {{ 
-            position: sticky; 
-            top: 0; 
-            z-index: 2; 
-            text-align: left; 
-            background: #f7f6f3 !important; 
-            padding: 6px 8px; 
-            border-bottom: 1px solid #eceae4; 
-            font-size: 11px; 
-            color: #666666 !important; 
-            white-space: nowrap; 
-            cursor: pointer; 
-            user-select: none; 
-            box-shadow: 0 1px 0 #eceae4; 
-        }}
-        
+        th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; cursor: pointer; user-select: none; box-shadow: 0 1px 0 #eceae4; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
-        
         td:first-child, th:first-child {{ position: sticky; left: 0; z-index: 1; border-right: 1px solid rgba(0,0,0,0.08); }}
         td:first-child {{ background-color: #ffffff; }}
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
-
         .bold {{ font-weight: 600; color: #111111 !important; }}
         .fl {{ color: #888888 !important; }}
         .up {{ color: #4a9e2f !important; font-weight: 600; }}
@@ -272,9 +254,7 @@ def display_replicated_table(df, key_prefix):
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
     </style>
-    <div class="table-container">
-        {formatted_html}
-    </div>
+    <div class="table-container">{formatted_html}</div>
     <script>
     document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
         const table = th.closest('table');
@@ -296,7 +276,7 @@ def display_replicated_table(df, key_prefix):
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
 
-# --- Dedicated HTML Renderer for Rolling Trends Table (WITH WoW DELTAS) ---
+# --- Dedicated HTML Renderer for Rolling Trends Table (DYNAMIC WOW DELTAS) ---
 def display_trend_table(df_trend, group_cols, key_prefix):
     if df_trend.empty:
         st.write("No trend data available for selected parameters.")
@@ -309,22 +289,24 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
     
-    # Calculate Week-over-Week Deltas (Requires strict chronological sorting first)
-    if 'client' in group_cols:
-        grp = grp.sort_values(by=['client', 'week'], ascending=[True, True])
-        grp['LS Δ'] = grp.groupby('client')['ls'].diff()
-        grp['LS Δ%'] = grp.groupby('client')['ls'].pct_change() * 100
-        grp['Uniq Δ'] = grp.groupby('client')['uniq'].diff()
-        grp['Uniq Δ%'] = grp.groupby('client')['uniq'].pct_change() * 100
-        grp['Uniq% Δpp'] = grp.groupby('client')['Uniq%'].diff()
-        grp['OB Δ'] = grp.groupby('client')['ob'].diff()
-        grp['OB Δ%'] = grp.groupby('client')['ob'].pct_change() * 100
-        grp['OB% Δpp'] = grp.groupby('client')['OB%'].diff()
-        grp['FT Δ'] = grp.groupby('client')['ft'].diff()
-        grp['FT Δ%'] = grp.groupby('client')['ft'].pct_change() * 100
-        grp['FT/OB% Δpp'] = grp.groupby('client')['FT/OB%'].diff()
-        # Re-sort for reverse chronological viewing (Newest Top)
-        grp = grp.sort_values(by=['client', 'week'], ascending=[True, False])
+    # Dynamic Week-over-Week Delta Calculator (Handles dynamic primary dimensions)
+    primary_dim = group_cols[0] if len(group_cols) > 1 else None
+    
+    if primary_dim:
+        grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, True])
+        grp['LS Δ'] = grp.groupby(primary_dim)['ls'].diff()
+        grp['LS Δ%'] = grp.groupby(primary_dim)['ls'].pct_change() * 100
+        grp['Uniq Δ'] = grp.groupby(primary_dim)['uniq'].diff()
+        grp['Uniq Δ%'] = grp.groupby(primary_dim)['uniq'].pct_change() * 100
+        grp['Uniq% Δpp'] = grp.groupby(primary_dim)['Uniq%'].diff()
+        grp['OB Δ'] = grp.groupby(primary_dim)['ob'].diff()
+        grp['OB Δ%'] = grp.groupby(primary_dim)['ob'].pct_change() * 100
+        grp['OB% Δpp'] = grp.groupby(primary_dim)['OB%'].diff()
+        grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
+        grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
+        grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
+        # Re-sort for display (Newest Week Top)
+        grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
     else:
         grp = grp.sort_values(by=['week'], ascending=[True])
         grp['LS Δ'] = grp['ls'].diff()
@@ -344,7 +326,7 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     grp = grp.replace([np.inf, -np.inf], np.nan)
     grp = grp.where(pd.notnull(grp), None)
         
-    headers = [col.title() for col in group_cols] + [
+    headers = [col.replace('_', ' ').title() for col in group_cols] + [
         "LS", "LS Δ", "LS Δ%", 
         "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
         "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", 
@@ -677,7 +659,7 @@ with tab_ui:
     display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 # ==========================================
-# RENDER TAB: ROLLING TRENDS (NEW TAB)
+# RENDER TAB: ROLLING TRENDS
 # ==========================================
 with tab_trends:
     st.markdown("## 📈 Rolling Week-on-Week Performance")
@@ -693,6 +675,16 @@ with tab_trends:
     
     st.markdown("#### 2. Client × Week Breakdown")
     display_trend_table(df_trend_raw, ['client', 'week'], "client_trend")
+    
+    st.markdown("#### 3. VL × Week Breakdown (Filtered by Client)")
+    active_trend_clients = sorted(list(df_trend_raw['client'].dropna().unique()))
+    trend_client_filter = st.multiselect("Isolate Specific Corporate Partner Focus (Client)", options=["All"] + active_trend_clients, default=["All"], key="trend_vl_client_filter")
+    
+    df_trend_vl = df_trend_raw.copy()
+    if "All" not in trend_client_filter and trend_client_filter:
+        df_trend_vl = df_trend_vl[df_trend_vl['client'].isin(trend_client_filter)]
+        
+    display_trend_table(df_trend_vl, ['vl_name', 'week'], "vl_trend")
 
 # ==========================================
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
