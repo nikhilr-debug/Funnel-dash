@@ -99,10 +99,16 @@ selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["A
 selected_cls = st.sidebar.multiselect("Filter by Core Leader (CL)", options=["All"] + allCLs, default=["All"])
 selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=["All"] + allAMs, default=["All"])
 
-# Optional Free Tier Gemini API Key Input
+# --- Secured Gemini API Key ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🤖 Free AI Integration")
-gemini_api_key = st.sidebar.text_input("Enter Free Gemini API Key", type="password", help="Paste your key here. Don't worry about trailing spaces, the code handles it.")
+st.sidebar.subheader("🤖 AI Integration Active")
+
+try:
+    gemini_api_key = st.secrets["GEMINI_API_KEY"]
+    st.sidebar.success("Gemini Assistant is online (Secured via st.secrets).")
+except KeyError:
+    st.sidebar.error("API Key not found in st.secrets. AI features disabled.")
+    gemini_api_key = None
 
 # Generate segmented baseline dataframes
 df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
@@ -232,7 +238,6 @@ def display_replicated_table(df, key_prefix):
         .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
         table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
         
-        /* Freeze Header Row */
         th {{ 
             position: sticky; 
             top: 0; 
@@ -257,10 +262,8 @@ def display_replicated_table(df, key_prefix):
             background-color: #ffffff; 
         }}
         
-        /* Hover state handles background color */
         tr:hover td {{ background-color: #f7f6f3 !important; }}
         
-        /* Freeze First Column */
         td:first-child, th:first-child {{
             position: sticky;
             left: 0;
@@ -274,7 +277,6 @@ def display_replicated_table(df, key_prefix):
             background-color: #f7f6f3 !important;
         }}
         
-        /* Top-Left Corner cell needs highest z-index so it stays above both scrolled paths */
         th:first-child {{
             z-index: 3;
             background-color: #f7f6f3 !important;
@@ -313,7 +315,6 @@ def display_replicated_table(df, key_prefix):
     }})));
     </script>
     """, height=max(140, min(550, len(df)*32 + 50)))
-
 
 # --- Hardened API Retry Engine ---
 def call_gemini_with_retries(api_key, payload, max_retries=3):
@@ -355,7 +356,6 @@ def call_gemini_with_retries(api_key, payload, max_retries=3):
                 break
                 
     return {"status": "error", "message": last_error}
-
 
 # --- Dictionary Mapping User Selections to Actual DataFrame Columns ---
 SORT_METRICS_MAP = {
@@ -623,11 +623,15 @@ with tab_rca:
         fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
         fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
         
+        up_dp = round(up_j - up_m, 2)
+        op_dp = round(op_j - op_m, 2)
+        fp_dp = round(fp_j - fp_m, 2)
+        
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), 
-            "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
-            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
+            "up_j": up_j, "up_m": up_m, "up_dp": up_dp, 
+            "op_j": op_j, "op_m": op_m, "op_dp": op_dp, 
+            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": fp_dp
         })
 
     laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
@@ -785,7 +789,7 @@ with tab_chat:
 
     if prompt := st.chat_input("Ask a question about the funnel performance..."):
         if not gemini_api_key:
-            st.warning("Please enter your free Gemini API Key in the sidebar to activate the AI Chatbot.")
+            st.warning("Please configure your st.secrets file to activate the AI Chatbot.")
         else:
             st.session_state.chat_history.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -795,6 +799,7 @@ with tab_chat:
                 message_placeholder = st.empty()
                 with st.spinner("Analyzing deep data structures..."):
                     
+                    # ENHANCED DEEP DATA DRILLDOWN INJECTION FOR CHAT INTERFACE
                     client_drilldown_insights = {}
                     for cl, data in payload["funnel_drill"].items():
                         client_drilldown_insights[str(cl)] = {
