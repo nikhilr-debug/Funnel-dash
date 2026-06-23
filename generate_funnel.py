@@ -336,9 +336,6 @@ def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
-        .fl {{ color: #888888 !important; }}
-        .up {{ color: #4a9e2f !important; font-weight: 600; }}
-        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -482,32 +479,14 @@ with tab_ui:
     </div>
     """, height=115)
 
-    # --- CLIENT CUT WITH DOWNLOAD BUTTON ---
-    df_client_table = transform_to_replicated_dataframe(payload["by_client"])
-    col_hdr1, col_dl1 = st.columns([8, 2])
-    with col_hdr1:
-        st.markdown("#### Client Cut")
-    with col_dl1:
-        st.download_button(label="📥 Download CSV", data=df_client_table.to_csv(index=False).encode('utf-8'), file_name=f"Client_Funnel_{curr_end}.csv", mime="text/csv", key="dl_client")
-    display_replicated_table(df_client_table, "s1")
+    st.markdown("#### Client Cut")
+    display_replicated_table(transform_to_replicated_dataframe(payload["by_client"]), "s1")
 
-    # --- PRODUCT CUT WITH DOWNLOAD BUTTON ---
-    df_product_table = transform_to_replicated_dataframe(payload["by_product"])
-    col_hdr2, col_dl2 = st.columns([8, 2])
-    with col_hdr2:
-        st.markdown("#### Product Type Cut")
-    with col_dl2:
-        st.download_button(label="📥 Download CSV", data=df_product_table.to_csv(index=False).encode('utf-8'), file_name=f"Product_Funnel_{curr_end}.csv", mime="text/csv", key="dl_prod")
-    display_replicated_table(df_product_table, "s2")
+    st.markdown("#### Product Type Cut")
+    display_replicated_table(transform_to_replicated_dataframe(payload["by_product"]), "s2")
 
-    # --- REGION CUT WITH DOWNLOAD BUTTON ---
-    df_region_table = transform_to_replicated_dataframe(payload["by_region"])
-    col_hdr3, col_dl3 = st.columns([8, 2])
-    with col_hdr3:
-        st.markdown("#### Region Cut")
-    with col_dl3:
-        st.download_button(label="📥 Download CSV", data=df_region_table.to_csv(index=False).encode('utf-8'), file_name=f"Region_Funnel_{curr_end}.csv", mime="text/csv", key="dl_reg")
-    display_replicated_table(df_region_table, "s4")
+    st.markdown("#### Region Cut")
+    display_replicated_table(transform_to_replicated_dataframe(payload["by_region"]), "s4")
 
     st.markdown("#### VL Cut — Configurable Volume Scan")
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -554,43 +533,6 @@ with tab_ui:
     df_s8 = transform_to_replicated_dataframe(drilled_rows_region)
     if not df_s8.empty: df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
-
-    st.markdown("#### Client × Product Type Drilldown")
-    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
-    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
-    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
-    drilled_rows_product = []
-    if "All" in selected_client_product or not selected_client_product:
-        for c, data in payload["funnel_drill"].items():
-            for row in data["by_product"]: drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
-    else:
-        for cl_isolate in selected_client_product:
-            if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_product", []): drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
-    if not df_s6.empty: df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
-
-    st.markdown("#### Region × VL Drilldown")
-    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
-    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
-    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
-    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
-    drilled_rows_region_vl = []
-    if "All" in selected_region_vl or not selected_region_vl:
-        for r, data in payload["region_drill"].items():
-            for row in data["by_vl"]: drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
-    else:
-        for rg_isolate in selected_region_vl:
-            if rg_isolate in payload["region_drill"]:
-                for row in payload["region_drill"][rg_isolate].get("by_vl", []): drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
-    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
-    if not df_s11.empty: df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
@@ -809,14 +751,6 @@ with tab_rca:
                 for v, r in df_matrix[df_matrix['ls_diff'] < 0].sort_values(by='ls_diff').head(3).iterrows(): st.markdown(f"- **{v}**: `{int(r['ls_diff'])}` LS")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            trap_vl_alerts = []
-            for v, r in df_matrix.iterrows():
-                if r['ls_p'] > 0:
-                    ls_growth_pct = (r['ls_diff'] / r['ls_p']) * 100
-                    if ls_growth_pct >= 10.0 and r['uniq_diff'] < 0:
-                        trap_vl_alerts.append(f"<li>⚠️ <strong>Penetration Trap Warning:</strong> Supplier <strong>{v}</strong> expanded referred volume ingress significantly (<strong>+{ls_growth_pct:.1f}% LS</strong>), yet suffered a flat or net negative conversion layer collapse (<strong>{int(r['uniq_diff'])} verified Unique Leads</strong>). Indicates duplicate profiles or poor database quality pool.</li>")
-            if trap_vl_alerts:
-                st.markdown(f"<ul style='list-style-type: none; padding-left: 0;'>{''.join(trap_vl_alerts)}</ul>", unsafe_allow_html=True)
 
             df_h5_client = df_h5[df_h5['client'] == client['name']].groupby(['vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
             unstable_vl_alerts = []
@@ -863,15 +797,19 @@ with tab_chat:
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
                     df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
+                    # --- CRITICAL PAYLOAD SIZE PRUNER ENGINE ---
+                    # To absolutely prevent 429 payload blocks, evaluate absolute volumetric change per Supplier
                     df_w_first = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[-1]].groupby(['client', 'vl_name'])['ft'].sum()
                     df_w_last = df_chat_raw[df_chat_raw['week'] == chat_target_weeks[0]].groupby(['client', 'vl_name'])['ft'].sum()
                     vl_deltas = (df_w_last - df_w_first).reset_index(name='delta')
                     
+                    # Isolate Top 20 absolute growers and Top 20 absolute laggards (The Anomaly Vectors)
                     significant_vls = pd.concat([
                         vl_deltas.sort_values(by='delta', ascending=False).head(20),
                         vl_deltas.sort_values(by='delta', ascending=True).head(20)
                     ]).drop_duplicates(subset=['client', 'vl_name'])
                     
+                    # Filter data grid down explicitly to these rows before sending text over the wire
                     df_chat_weeks_pruned = df_chat_weeks[df_chat_weeks.set_index(['client', 'vl_name']).index.isin(significant_vls.set_index(['client', 'vl_name']).index)]
                     csv_context = df_chat_weeks_pruned.to_csv(index=False)
                     
