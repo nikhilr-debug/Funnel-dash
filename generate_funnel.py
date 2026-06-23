@@ -52,17 +52,10 @@ for col in ['ls', 'uniq', 'ob', 'ft']:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0).astype(int)
 
-# Normalize vendor field availability
-if 'vendor' not in df_raw.columns and 'vendor_name' in df_raw.columns:
-    df_raw['vendor'] = df_raw['vendor_name']
-elif 'vendor' not in df_raw.columns:
-    df_raw['vendor'] = df_raw['vl_name'] # Fallback mapping if explicit field is missing
-
 # --- 2. Global Filter Dimension Definitions ---
 allClients = sorted(list(df_raw['client'].dropna().unique()))
 allRegions = sorted(list(df_raw['region'].dropna().unique()))
 allVLs = sorted(list(df_raw['vl_name'].dropna().unique()))
-allVendors = sorted(list(df_raw['vendor'].dropna().unique()))
 allCLs = sorted(list(df_raw['cl'].dropna().unique()))
 allAMs = sorted(list(df_raw['am_name'].dropna().unique()))
 allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
@@ -494,7 +487,6 @@ def build_html_metric_payload(df_c, df_p):
     compiled["by_product"] = roll_dim(df_c, df_p, 'lead_referral_type') if 'lead_referral_type' in df_c.columns else roll_dim(df_c, df_p, 'client').copy()
     compiled["by_region"] = roll_dim(df_c, df_p, 'region')
     compiled["by_vl"] = roll_dim(df_c, df_p, 'vl_name')
-    compiled["by_vendor"] = roll_dim(df_c, df_p, 'vendor')
     compiled["by_cl"] = roll_dim(df_c, df_p, 'cl')
     compiled["by_am"] = roll_dim(df_c, df_p, 'am_name')
     
@@ -567,19 +559,6 @@ with tab_ui:
     if not df_s5.empty:
         df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s5.head(top_n_vl), "s5")
-
-    # --- NEW ADDITION: CONFIGURABLE VENDOR VOLUME SCAN ---
-    st.markdown("#### Vendor Cut — Configurable Volume Scan")
-    v_col1, v_col2, v_col3 = st.columns([2, 1, 1])
-    top_n_vendor = v_col1.slider("Select Display Window Scale (Vendor Cut)", min_value=5, max_value=100, value=20, key="vendor_slider")
-    sort_vendor = v_col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="vendor_sort")
-    order_vendor = v_col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="vendor_order")
-    
-    df_vendor = transform_to_replicated_dataframe(payload["by_vendor"])
-    if not df_vendor.empty:
-        df_vendor = df_vendor.sort_values(by=SORT_METRICS_MAP[sort_vendor], ascending=(order_vendor == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_vendor.head(top_n_vendor), "vendor_scan")
-    # -----------------------------------------------------
 
     st.markdown("#### Client × VL Matrix Drilldown")
     active_drill_list = sorted(list(df_curr['client'].dropna().unique()))
@@ -701,9 +680,30 @@ with tab_trends:
     active_trend_clients = sorted(list(df_trend_raw['client'].dropna().unique()))
     trend_client_filter = st.multiselect("Isolate Specific Corporate Partner Focus (Client)", options=["All"] + active_trend_clients, default=["All"], key="trend_vl_client_filter")
     
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_trend_vl = col1.slider("Select Display Window Scale (VL Trend)", min_value=5, max_value=100, value=20, key="trend_vl_slider")
+    sort_trend_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="trend_vl_sort")
+    order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
+
     df_trend_vl = df_trend_raw.copy()
+    
+    # Base Current/Prev Data for Ranking the Top N VLs accurately
+    df_rank_curr = df_curr.copy()
+    df_rank_prev = df_prev.copy()
+
     if "All" not in trend_client_filter and trend_client_filter:
         df_trend_vl = df_trend_vl[df_trend_vl['client'].isin(trend_client_filter)]
+        df_rank_curr = df_rank_curr[df_rank_curr['client'].isin(trend_client_filter)]
+        df_rank_prev = df_rank_prev[df_rank_prev['client'].isin(trend_client_filter)]
+
+    # Rank VLs based on the Master Week window
+    vl_trend_payload = build_html_metric_payload(df_rank_curr, df_rank_prev)["by_vl"]
+    df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
+    
+    if not df_vl_ranking.empty:
+        df_vl_ranking = df_vl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_vl], ascending=(order_trend_vl == "Bottom Performers (Degrowing)"))
+        top_vls_list = df_vl_ranking.head(top_n_trend_vl)["Dimension"].tolist()
+        df_trend_vl = df_trend_vl[df_trend_vl['vl_name'].isin(top_vls_list)]
         
     display_trend_table(df_trend_vl, ['vl_name', 'week'], "vl_trend")
 
