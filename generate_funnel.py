@@ -99,10 +99,9 @@ selected_vls = st.sidebar.multiselect("Filter by Vahan Leader (VL)", options=["A
 selected_cls = st.sidebar.multiselect("Filter by Core Leader (CL)", options=["All"] + allCLs, default=["All"])
 selected_ams = st.sidebar.multiselect("Filter by Account Manager (AM)", options=["All"] + allAMs, default=["All"])
 
-# --- Secured Gemini API Key ---
+# --- Secured Gemini API Key Vault ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 AI Integration Active")
-
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
     st.sidebar.success("Gemini Assistant is online (Secured via st.secrets).")
@@ -623,15 +622,11 @@ with tab_rca:
         fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
         fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
         
-        up_dp = round(up_j - up_m, 2)
-        op_dp = round(op_j - op_m, 2)
-        fp_dp = round(fp_j - fp_m, 2)
-        
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": up_dp, 
-            "op_j": op_j, "op_m": op_m, "op_dp": op_dp, 
-            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": fp_dp
+            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), 
+            "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
+            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
         })
 
     laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
@@ -799,33 +794,51 @@ with tab_chat:
                 message_placeholder = st.empty()
                 with st.spinner("Analyzing deep data structures..."):
                     
-                    # ENHANCED DEEP DATA DRILLDOWN INJECTION FOR CHAT INTERFACE
-                    client_drilldown_insights = {}
-                    for cl, data in payload["funnel_drill"].items():
-                        client_drilldown_insights[str(cl)] = {
-                            "by_region_summary": [{ "region": str(x["dim"]), "ft_jun": int(x["jun"]["ft"]), "ft_may": int(x["may"]["ft"]), "ft_delta": int(x["jun"]["ft"] - x["may"]["ft"]) } for x in data["by_region"]],
-                            "by_vl_summary": [{ 
-                                "vl_name": str(x["dim"]), 
-                                "ft_jun": int(x["jun"]["ft"]), "ft_may": int(x["may"]["ft"]), "ft_delta": int(x["jun"]["ft"] - x["may"]["ft"]),
-                                "ls_jun": int(x["jun"]["ls"]), "ls_may": int(x["may"]["ls"]),
-                                "uniq_jun": int(x["jun"]["uniqueness"]), "ob_jun": int(x["jun"]["ob"])
-                            } for x in data["by_vl"]]
+                    # DYNAMIC TIMELINE TREE COMPILER (Client x VL x Week Grain)
+                    # We group the entire active raw database slice chronologically
+                    df_chat_weeks = df_curr.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
+                    
+                    weekly_chronology_tree = {}
+                    for _, row in df_chat_weeks.iterrows():
+                        c = str(row['client'])
+                        vl = str(row['vl_name'])
+                        wk = str(row['week'])
+                        
+                        if c not in weekly_chronology_tree: 
+                            weekly_chronology_tree[c] = {}
+                        if vl not in weekly_chronology_tree[c]: 
+                            weekly_chronology_tree[c][vl] = {}
+                            
+                        weekly_chronology_tree[c][vl][wk] = {
+                            "Lead_Share_LS_Referred": int(row['ls']),
+                            "Uniqueness_Accepted_By_Client": int(row['uniq']),
+                            "Onboarded_OB_Activated": int(row['ob']),
+                            "First_Trips_FT_Completed": int(row['ft'])
                         }
                     
                     context_data = {
-                        "overall_performance_macro": fo_rca,
-                        "top_5_growing_vls_global": {str(k): int(v) for k, v in top_growing_vls['delta'].items()},
-                        "top_5_degrowing_vls_global": {str(k): int(v) for k, v in top_degrowing_vls['delta'].items()},
-                        "laggard_clients_overview": [(str(c["name"]), int(c["ft_abs"])) for c in laggard_clients],
-                        "client_specific_drilldowns_deep": client_drilldown_insights
+                        "macro_summary_aggregates": fo_rca,
+                        "chronological_week_on_week_client_x_vl_funnel_tree": weekly_chronology_tree
                     }
                     
-                    gemini_history = []
+                    # System instructions enforce strict ecosystem domain mapping
+                    system_guideline = (
+                        "You are an expert Executive Operations Data Analyst reporting directly to the CEO.\n"
+                        "CRITICAL STRUCTURAL RULES FOR THE BUSINESS TAXONOMY:\n"
+                        "1. CLIENTS are purchasing enterprises (e.g., Swiggy, Blinkit, Zomato, Swiggy Instamart). Never call them vendors.\n"
+                        "2. VAHAN LEADERS (VLs) are third-party manpower sourcing vendors (e.g., My Smart Buy, Agile Careers, Runner Jobs) who recruit and supply workers TO clients.\n"
+                        "3. NEVER confuse a Client with a VL. Never compare them as equal groups.\n\n"
+                        "ROOT CAUSE ANALYSIS (RCA) EXECUTION MATRIX:\n"
+                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness ➔ Lead Share (LS).\n"
+                        "Track anomalies week-on-week chronologically using the provided tree to map specific drops directly back to the Client x VL interface."
+                    )
+                    
+                    gemini_history = [{"role": "user", "parts": [{"text": system_guideline}]}]
                     for m in st.session_state.chat_history[:-1]:
                         gemini_role = "user" if m["role"] == "user" else "model"
                         gemini_history.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
                     
-                    current_prompt_with_context = f"Data Context Matrix: {json.dumps(context_data)}\n\nUser Question: {prompt}\n\nAnswer cleanly, clearly, and concisely as a Data Analyst based on this provided matrix."
+                    current_prompt_with_context = f"Granular Database Matrix: {json.dumps(context_data)}\n\nUser Operational Question: {prompt}"
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
                     gemini_api_key_clean = gemini_api_key.strip()
