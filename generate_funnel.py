@@ -63,7 +63,6 @@ allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
 # --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 
-# The Master Week Slicer
 anchor_week = st.sidebar.selectbox("📅 Master Week Slicer", options=allWeeks, help="Select a week to act as 'Present Day'. Both MTD and WTD scopes will calculate accurately based on this anchor.")
 operational_today = df_raw[df_raw['week'] == anchor_week]['day'].max()
 
@@ -71,11 +70,9 @@ view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "
 
 reference_date = operational_today
 
-# Replicate exact apples-to-apples baseline boundaries
 if view_mode == "MTD (Month-to-Date)":
     curr_start = reference_date.replace(day=1)
     curr_end = reference_date
-    
     prev_month = 12 if curr_start.month == 1 else curr_start.month - 1
     prev_year = curr_start.year - 1 if curr_start.month == 1 else curr_start.year
     prev_start = date(prev_year, prev_month, 1)
@@ -110,10 +107,6 @@ except KeyError:
     st.sidebar.error("API Key not found in st.secrets. AI features disabled.")
     gemini_api_key = None
 
-# Generate segmented baseline dataframes
-df_curr = df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)]
-df_prev = df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)]
-
 def apply_dimensional_filters(target_df):
     if not target_df.empty:
         if selected_clients and "All" not in selected_clients:
@@ -128,10 +121,9 @@ def apply_dimensional_filters(target_df):
             target_df = target_df[target_df['am_name'].isin(selected_ams)]
     return target_df
 
-df_curr = apply_dimensional_filters(df_curr)
-df_prev = apply_dimensional_filters(df_prev)
+df_curr = apply_dimensional_filters(df_raw[(df_raw['day'] >= curr_start) & (df_raw['day'] <= curr_end)])
+df_prev = apply_dimensional_filters(df_raw[(df_raw['day'] >= prev_start) & (df_raw['day'] <= prev_end)])
 
-# --- 4. Executive Top-Banner Component ---
 st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
 # --- 5. Global Core Data Sorters & Tables Formatting Engines ---
@@ -140,9 +132,7 @@ def get_colored_delta(v, suffix=""):
     if v == 0: return f"0{suffix}"
     cl = "up" if v > 0 else "dn"
     sign = "+" if v > 0 else ""
-    if suffix in ["pp", "%"]:
-        return f'<span class="{cl}">{sign}{abs(v):.2f}{suffix}</span>'
-    
+    if suffix in ["pp", "%"]: return f'<span class="{cl}">{sign}{abs(v):.2f}{suffix}</span>'
     val = abs(v)
     if val >= 1e6: f_val = f"{val/1e6:.1f}M"
     elif val >= 1e3: f_val = f"{val:,.0f}"
@@ -152,29 +142,22 @@ def get_colored_delta(v, suffix=""):
 def get_pill_pct(p, metric_type):
     if p is None or pd.isna(p): return "—"
     v = round(p)
-    if metric_type == 'uniq':
-        cl = 'pg' if v >= 40 else ('pa' if v >= 20 else 'pr')
-    elif metric_type == 'ob':
-        cl = 'pg' if v >= 5 else ('pa' if v >= 1 else 'pr')
-    else:
-        cl = 'pg' if v >= 60 else ('pa' if v >= 40 else 'pr')
+    if metric_type == 'uniq': cl = 'pg' if v >= 40 else ('pa' if v >= 20 else 'pr')
+    elif metric_type == 'ob': cl = 'pg' if v >= 5 else ('pa' if v >= 1 else 'pr')
+    else: cl = 'pg' if v >= 60 else ('pa' if v >= 40 else 'pr')
     return f'<span class="pill {cl}">{v}%</span>'
 
 def transform_to_replicated_dataframe(rows_list):
     processed = []
     for r in rows_list:
         vj, vm = r["jun"], r["may"]
-        
         up_j = round((vj["uniqueness"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
         up_m = round((vm["uniqueness"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
-        
         op_j = round((vj["ob"] / vj["uniqueness"] * 100), 2) if vj["uniqueness"] > 0 else (round((vj["ob"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0)
         const_base_p = vm["uniqueness"] if vm["uniqueness"] > 0 else vm["ls"]
         op_m = round((vm["ob"] / const_base_p * 100), 2) if const_base_p > 0 else 0.0
-        
         fp_j = round((vj["ft"] / vj["ob"] * 100), 2) if vj["ob"] > 0 else 0.0
         fp_m = round((vm["ft"] / vm["ob"] * 100), 2) if vm["ob"] > 0 else 0.0
-
         processed.append({
             "Dimension": r["dim"],
             "LS (Lead Share) Jun": vj["ls"], "LS (Lead Share) May": vm["ls"], "LS Δ": vj["ls"] - vm["ls"], "LS Δ%": round(((vj["ls"] - vm["ls"]) / vm["ls"] * 100), 1) if vm["ls"] > 0 else None,
@@ -191,22 +174,18 @@ def display_replicated_table(df, key_prefix):
     if df.empty:
         st.write("No metrics matching active filter states.")
         return
-        
     ordered_cols = [
         "Dimension", "LS (Lead Share) Jun", "LS (Lead Share) May", "LS Δ", "LS Δ%", "Unique Jun", "Unique May", "Unique Δ",
         "Uniq%", "Uniq Δpp", "OB (Onboarded) Jun", "OB (Onboarded) May", "OB Δ", "OB%", "OB Δpp", "FT (First Trip) Jun", "FT (First Trip) May",
         "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp"
     ]
     df = df[ordered_cols].copy()
-    
     formatted_html = f"<table id='table_{key_prefix}'><thead><tr>" + "".join([f"<th>{col} ↕</th>" for col in ordered_cols]) + "</tr></thead><tbody>"
-    
     for _, r in df.iterrows():
         ls_class = "up" if r["LS Δ"] > 0 else ("dn" if r["LS Δ"] < 0 else "")
         uniq_class = "up" if r["Unique Δ"] > 0 else ("dn" if r["Unique Δ"] < 0 else "")
         ob_class = "up" if r["OB Δ"] > 0 else ("dn" if r["OB Δ"] < 0 else "")
         ft_class = "up" if r["FT Δ"] > 0 else ("dn" if r["FT Δ"] < 0 else "")
-
         formatted_html += "<tr>"
         formatted_html += f"<td class='bold sticky-col'>{r['Dimension']}</td>"
         formatted_html += f"<td><span class='{ls_class}'>{r['LS (Lead Share) Jun']:,}</span></td>"
@@ -230,14 +209,13 @@ def display_replicated_table(df, key_prefix):
         formatted_html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT/OB Δpp'], 'pp')}</td>"
         formatted_html += "</tr>"
-        
     formatted_html += "</tbody></table>"
     
     st.iframe(f"""
     <style>
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
         .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
-        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
+        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, sans-serif; font-size: 12px; }}
         th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; cursor: pointer; user-select: none; box-shadow: 0 1px 0 #eceae4; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
@@ -262,12 +240,10 @@ def display_replicated_table(df, key_prefix):
         const rows = Array.from(tbody.querySelectorAll('tr'));
         const index = Array.from(th.parentNode.children).indexOf(th);
         const asc = th.dataset.asc = !th.dataset.asc;
-        
         rows.sort((rowA, rowB) => {{
             let cellA = rowA.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
             let cellB = rowB.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
-            const numA = parseFloat(cellA);
-            const numB = parseFloat(cellB);
+            const numA = parseFloat(cellA); const numB = parseFloat(cellB);
             if (!isNaN(numA) && !isNaN(numB)) return asc ? numA - numB : numB - numA;
             return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
         }});
@@ -277,14 +253,12 @@ def display_replicated_table(df, key_prefix):
     """, height=max(140, min(550, len(df)*32 + 50)))
 
 # --- Dedicated HTML Renderer for Rolling Trends Table (DYNAMIC WOW DELTAS) ---
-def display_trend_table(df_trend, group_cols, key_prefix):
+def display_trend_table(df_trend, group_cols, key_prefix, dimension_order=None):
     if df_trend.empty:
         st.write("No trend data available for selected parameters.")
         return
         
     grp = df_trend.groupby(group_cols)[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
-    
-    # Base Conversion Percents
     grp['Uniq%'] = grp.apply(lambda r: round(r['uniq']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
@@ -304,7 +278,11 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
-        grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
+        if dimension_order:
+            grp[primary_dim] = pd.Categorical(grp[primary_dim], categories=dimension_order, ordered=True)
+            grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
+        else:
+            grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
     else:
         grp = grp.sort_values(by=['week'], ascending=[True])
         grp['LS Δ'] = grp['ls'].diff()
@@ -324,10 +302,8 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     grp = grp.where(pd.notnull(grp), None)
         
     headers = [col.replace('_', ' ').title() for col in group_cols] + [
-        "LS", "LS Δ", "LS Δ%", 
-        "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
-        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", 
-        "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp"
+        "LS", "LS Δ", "LS Δ%", "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
+        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp"
     ]
     
     html = f"<table id='trend_{key_prefix}'><thead><tr>"
@@ -339,37 +315,20 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         for idx, col in enumerate(group_cols):
             css_class = "bold sticky-col" if idx == 0 else "bold"
             html += f"<td class='{css_class}'>{r[col]}</td>"
-            
-        html += f"<td>{int(r['ls']):,}</td>"
-        html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
-        html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
-        
-        html += f"<td>{int(r['uniq']):,}</td>"
-        html += f"<td>{get_colored_delta(r['Uniq Δ'])}</td>"
-        html += f"<td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
-        html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
-        html += f"<td>{get_colored_delta(r['Uniq% Δpp'], 'pp')}</td>"
-        
-        html += f"<td>{int(r['ob']):,}</td>"
-        html += f"<td>{get_colored_delta(r['OB Δ'])}</td>"
-        html += f"<td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
-        html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
-        html += f"<td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
-        
-        html += f"<td class='bold'>{int(r['ft']):,}</td>"
-        html += f"<td>{get_colored_delta(r['FT Δ'])}</td>"
-        html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
-        html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
-        html += f"<td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td>"
-        html += "</tr>"
-        
+        html += f"<td>{int(r['ls']):,}</td><td>{get_colored_delta(r['LS Δ'])}</td><td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
+        html += f"<td>{int(r['uniq']):,}</td><td>{get_colored_delta(r['Uniq Δ'])}</td><td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
+        html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td><td>{get_colored_delta(r['Uniq% Δpp'], 'pp')}</td>"
+        html += f"<td>{int(r['ob']):,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
+        html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td><td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
+        html += f"<td class='bold'>{int(r['ft']):,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
+        html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td><td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td></tr>"
     html += "</tbody></table>"
     
     st.iframe(f"""
     <style>
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
         .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
-        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
+        table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, sans-serif; font-size: 12px; }}
         th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; box-shadow: 0 1px 0 #eceae4; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
@@ -378,9 +337,6 @@ def display_trend_table(df_trend, group_cols, key_prefix):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
-        .fl {{ color: #888888 !important; }}
-        .up {{ color: #4a9e2f !important; font-weight: 600; }}
-        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -389,9 +345,9 @@ def display_trend_table(df_trend, group_cols, key_prefix):
     <div class="table-container">{html}</div>
     """, height=max(140, min(550, len(grp)*32 + 50)))
 
-# --- Hardened API Retry Engine ---
-def call_gemini_with_retries(api_key, payload, max_retries=3):
-    models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]
+# --- Token-Optimized API Retry Engine for 429 Failover ---
+def call_gemini_with_retries(api_key, payload, max_retries=4):
+    models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash"]
     headers = {'Content-Type': 'application/json'}
     
     last_error = None
@@ -403,14 +359,15 @@ def call_gemini_with_retries(api_key, payload, max_retries=3):
                 if resp.status_code == 200:
                     return {"status": "success", "data": resp.json()}
                 elif resp.status_code == 401:
-                    return {"status": "error", "message": "Invalid API Key. Please verify your Gemini key in Google AI Studio."}
+                    return {"status": "error", "message": "Invalid API Key. Verify your Gemini key in Google AI Studio."}
                 elif resp.status_code == 404:
-                    last_error = f"Model {model} is deprecated or unavailable (404)."
+                    last_error = f"Model {model} deprecated (404)."
                     break 
-                elif resp.status_code in [503, 429]:  
+                elif resp.status_code in [429, 503]:  
                     last_error = f"Model {model} overloaded (Status {resp.status_code})."
                     if attempt < max_retries - 1:
-                        time.sleep((2 ** attempt) + 1)
+                        sleep_time = (2 ** attempt) * 3 
+                        time.sleep(sleep_time)
                         continue
                     break 
                 else:
@@ -418,37 +375,24 @@ def call_gemini_with_retries(api_key, payload, max_retries=3):
             except requests.exceptions.Timeout:
                 last_error = f"Connection to {model} Timed Out."
                 if attempt < max_retries - 1:
-                    time.sleep((2 ** attempt) + 1)
+                    time.sleep((2 ** attempt) * 3)
                     continue
                 break
             except requests.exceptions.RequestException as e:
                 last_error = f"Network Exception on {model}: {str(e)}"
                 if attempt < max_retries - 1:
-                    time.sleep((2 ** attempt) + 1)
+                    time.sleep((2 ** attempt) * 3)
                     continue
                 break
-                
     return {"status": "error", "message": last_error}
 
-# --- Dictionary Mapping User Selections to Actual DataFrame Columns ---
 SORT_METRICS_MAP = {
-    "FT Δ": "FT Δ",
-    "LS Δ": "LS Δ",
-    "Uniq Δ": "Unique Δ",
-    "OB Δ": "OB Δ",
-    "Uniq% Δpp": "Uniq Δpp",
-    "OB% Δpp": "OB Δpp",
-    "FT/OB% Δpp": "FT/OB Δpp",
-    "LS Δ%": "LS Δ%",
-    "FT Δ%": "FT Δ%",
-    "FT Jun": "FT (First Trip) Jun",
-    "LS Jun": "LS (Lead Share) Jun",
-    "Uniq% Jun": "Uniq%",
-    "OB% Jun": "OB%",
-    "FT/OB% Jun": "FT/OB%"
+    "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
+    "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
+    "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", "FT Jun": "FT (First Trip) Jun",
+    "LS Jun": "LS (Lead Share) Jun", "Uniq% Jun": "Uniq%", "OB% Jun": "OB%", "FT/OB% Jun": "FT/OB%"
 }
 
-# --- 6. Metrics Object Payload Compiler ---
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
@@ -518,12 +462,11 @@ tab_ui, tab_trends, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "📈 Rolli
 with tab_ui:
     st.markdown("### Executive Summary — Macro Funnel Conversion Checkpoints")
     fo = payload["overall_funnel"]
-    
     st.iframe(f"""
     <style>
         body {{ background-color: transparent; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
         .row {{ display: flex; gap: 8px; }}
-        .card {{ flex: 1; background: #ffffff !important; color: #111111 !important; border: 0.5px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }}
+        .card {{ flex: 1; background: #ffffff !important; border: 0.5px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 12px; text-align: center; }}
         .val {{ font-size: 22px; font-weight: 600; color: #111111 !important; }}
         .lbl {{ font-size: 10px; color: #666666 !important; text-transform: uppercase; margin: 3px 0; letter-spacing: 0.05em; }}
         .sub {{ font-size: 11px; color: #888888 !important; }}
@@ -551,60 +494,83 @@ with tab_ui:
     top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
     sort_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s5_sort")
     order_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s5_order")
-    
     df_s5 = transform_to_replicated_dataframe(payload["by_vl"])
-    if not df_s5.empty:
-        df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
+    if not df_s5.empty: df_s5 = df_s5.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s5.head(top_n_vl), "s5")
 
     st.markdown("#### Client × VL Matrix Drilldown")
     active_drill_list = sorted(list(df_raw['client'].dropna().unique()))
     selected_client_drill = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_drill_list, default=["All"], key="s9_drill_select")
-    
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s9 = col1.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20, key="s9_slider")
     sort_s9 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s9_sort")
     order_s9 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s9_order")
-    
     drilled_rows_vl = []
     if "All" in selected_client_drill or not selected_client_drill:
         for c, data in payload["funnel_drill"].items():
-            for row in data["by_vl"]:
-                drilled_rows_vl.append({**row, "dim": f"{c} · {row['dim']}"})
+            for row in data["by_vl"]: drilled_rows_vl.append({**row, "dim": f"{c} · {row['dim']}"})
     else:
         for cl_isolate in selected_client_drill:
             if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_vl", []):
-                    drilled_rows_vl.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-    
+                for row in payload["funnel_drill"][cl_isolate].get("by_vl", []): drilled_rows_vl.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
     df_s9 = transform_to_replicated_dataframe(drilled_rows_vl)
-    if not df_s9.empty:
-        df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
+    if not df_s9.empty: df_s9 = df_s9.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s9.head(top_n_drill_s9), "s9")
 
     st.markdown("#### Client × Region Drilldown")
     selected_client_region = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Region)", options=["All"] + active_drill_list, default=["All"], key="s8_drill_select")
-    
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s8 = col1.slider("Select Display Window Scale (Client × Region)", min_value=5, max_value=100, value=20, key="s8_slider")
     sort_s8 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s8_sort")
     order_s8 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s8_order")
-    
     drilled_rows_region = []
     if "All" in selected_client_region or not selected_client_region:
         for c, data in payload["funnel_drill"].items():
-            for row in data["by_region"]:
-                drilled_rows_region.append({**row, "dim": f"{c} · {row['dim']}"})
+            for row in data["by_region"]: drilled_rows_region.append({**row, "dim": f"{c} · {row['dim']}"})
     else:
         for cl_isolate in selected_client_region:
             if cl_isolate in payload["funnel_drill"]:
-                for row in payload["funnel_drill"][cl_isolate].get("by_region", []):
-                    drilled_rows_region.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
-                    
+                for row in payload["funnel_drill"][cl_isolate].get("by_region", []): drilled_rows_region.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
     df_s8 = transform_to_replicated_dataframe(drilled_rows_region)
-    if not df_s8.empty:
-        df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
+    if not df_s8.empty: df_s8 = df_s8.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8.head(top_n_drill_s8), "s8")
+
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    drilled_rows_product = []
+    if "All" in selected_client_product or not selected_client_product:
+        for c, data in payload["funnel_drill"].items():
+            for row in data["by_product"]: drilled_rows_product.append({**row, "dim": f"{c} · {row['dim']}"})
+    else:
+        for cl_isolate in selected_client_product:
+            if cl_isolate in payload["funnel_drill"]:
+                for row in payload["funnel_drill"][cl_isolate].get("by_product", []): drilled_rows_product.append({**row, "dim": f"{cl_isolate} · {row['dim']}"})
+    df_s6 = transform_to_replicated_dataframe(drilled_rows_product)
+    if not df_s6.empty: df_s6 = df_s6.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6.head(top_n_drill_s6), "s6")
+
+    st.markdown("#### Region × VL Drilldown")
+    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
+    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
+    drilled_rows_region_vl = []
+    if "All" in selected_region_vl or not selected_region_vl:
+        for r, data in payload["region_drill"].items():
+            for row in data["by_vl"]: drilled_rows_region_vl.append({**row, "dim": f"{r} · {row['dim']}"})
+    else:
+        for rg_isolate in selected_region_vl:
+            if rg_isolate in payload["region_drill"]:
+                for row in payload["region_drill"][rg_isolate].get("by_vl", []): drilled_rows_region_vl.append({**row, "dim": f"{rg_isolate} · {row['dim']}"})
+    df_s11 = transform_to_replicated_dataframe(drilled_rows_region_vl)
+    if not df_s11.empty: df_s11 = df_s11.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s11.head(top_n_drill_s11), "s11")
 
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
@@ -645,12 +611,13 @@ with tab_trends:
     vl_trend_payload = build_html_metric_payload(df_rank_curr, df_rank_prev)["by_vl"]
     df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
     
+    top_vls_list = None
     if not df_vl_ranking.empty:
         df_vl_ranking = df_vl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_vl], ascending=(order_trend_vl == "Bottom Performers (Degrowing)"))
         top_vls_list = df_vl_ranking.head(top_n_trend_vl)["Dimension"].tolist()
         df_trend_vl = df_trend_vl[df_trend_vl['vl_name'].isin(top_vls_list)]
         
-    display_trend_table(df_trend_vl, ['vl_name', 'week'], "vl_trend")
+    display_trend_table(df_trend_vl, ['vl_name', 'week'], "vl_trend", dimension_order=top_vls_list)
 
 # ==========================================
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
@@ -660,10 +627,8 @@ with tab_rca:
     st.caption("Reviewing conversion paths across Lead Share (LS), Uniqueness, Onboarding (OB), and First Trips (FT).")
     
     filter_col1, filter_col2 = st.columns(2)
-    with filter_col1:
-        rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
-    with filter_col2:
-        rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
+    with filter_col1: rca_client_filter = st.multiselect("Isolate Executive Client Segments", options=["All"] + allClients, default=["All"], key="rca_c")
+    with filter_col2: rca_region_filter = st.multiselect("Isolate Geo-Spatial Territory Boundaries", options=["All"] + allRegions, default=["All"], key="rca_r")
         
     df_rca_curr = df_curr.copy()
     df_rca_prev = df_prev.copy()
@@ -683,18 +648,15 @@ with tab_rca:
         c_name = c_obj["dim"]
         vj, vm = c_obj["jun"], c_obj["may"]
         ft_delta = vj["ft"] - vm["ft"]
-        
         up_j = (vj["uniqueness"] / vj["ls"] * 100) if vj["ls"] > 0 else 0.0
         up_m = (vm["uniqueness"] / vm["ls"] * 100) if vm["ls"] > 0 else 0.0
         op_j = (vj["ob"] / vj["uniqueness"] * 100) if vj["uniqueness"] > 0 else 0.0
         op_m = (vm["ob"] / vm["uniqueness"] * 100) if vm["uniqueness"] > 0 else 0.0
         fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
         fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
-        
         client_funnels_compiled.append({
             "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), 
-            "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
+            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
             "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
         })
 
@@ -713,25 +675,13 @@ with tab_rca:
         ls_drop_pct = abs(round((fo_rca["ls_delta"] / fo_rca["ls_m"] * 100), 1)) if fo_rca["ls_m"] > 0 else 0
         client_ls_drops = []
         for c in client_funnels_compiled:
-            if c["ls_delta"] < 0:
-                client_ls_drops.append((c["name"], abs(c["ls_delta"])))
+            if c["ls_delta"] < 0: client_ls_drops.append((c["name"], abs(c["ls_delta"])))
         client_ls_drops.sort(key=lambda x: x[1], reverse=True)
         top_offenders = [f"{name} - {val/100000:.1f}L" for name, val in client_ls_drops[:3]]
-        
         report_lines = [
-            f"=== VAHAN EXECUTIVE FUNNEL PERFORMANCE MATRIX ===",
-            f"Reporting Range: {curr_start} to {curr_end} vs Baseline: {prev_start} to {prev_end}",
-            f"",
-            f"1. OVERALL FUNNEL SUMMARY",
-            f"• {fo_rca['ls_j']/100000:.1f}L leads uploaded (Lead Share) this month down from {fo_rca['ls_m']/100000:.1f}L; {ls_drop_pct}% ▼",
-            f"• Largest drop comes from ({', '.join(top_offenders)})",
-            f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh leads new to client databases).",
-            f"",
-            f"2. ATTRIBUTION DRILL-DOWN SUMMARY",
-            f"• Swiggy is the highest impacted client where the VLs are moving leads from Instamart to Swiggy Food.",
-            f"  (Key Vahan Leaders tracking migration: My Smart Buy, Runner Jobs, Delhive, Fastseek and Speed Rider).",
-            f"• Qualitative Friction Vector: RojiRoty is re-utilising his leads on various clients but not pushing numbers on Swiggy or Instamart.",
-            f"  He has significantly reduced overall Lead Share volume on Swiggy and is flagged at high risk of churn."
+            f"=== VAHAN EXECUTIVE FUNNEL PERFORMANCE MATRIX ===", f"Reporting Range: {curr_start} to {curr_end} vs Baseline: {prev_start} to {prev_end}", f"",
+            f"1. OVERALL FUNNEL SUMMARY", f"• {fo_rca['ls_j']/100000:.1f}L leads uploaded (Lead Share) this month down from {fo_rca['ls_m']/100000:.1f}L; {ls_drop_pct}% ▼",
+            f"• Largest drop comes from ({', '.join(top_offenders)})", f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh leads new to client databases)."
         ]
         return "\n".join(report_lines)
 
@@ -740,14 +690,12 @@ with tab_rca:
     if gemini_api_key:
         with st.spinner("🧠 Querying free Gemini AI cascade layer to generate corporate analysis briefing..."):
             gemini_api_key_clean = gemini_api_key.strip()
-            
             context_payload = {
                 "overall": fo_rca,
                 "top_growing_vls": {str(k): int(v) for k, v in top_growing_vls['delta'].items()},
                 "top_degrowing_vls": {str(k): int(v) for k, v in top_degrowing_vls['delta'].items()},
                 "laggard_clients_volume": [(str(c["name"]), int(c["ft_abs"])) for c in laggard_clients]
             }
-            
             prompt_payload = {
                 "contents": [{
                     "parts": [{
@@ -759,11 +707,9 @@ with tab_rca:
                     }]
                 }]
             }
-            
             llm_response = call_gemini_with_retries(gemini_api_key_clean, prompt_payload)
             if llm_response["status"] == "success":
-                ai_text = llm_response["data"]["candidates"][0]["content"]["parts"][0]["text"]
-                st.markdown(ai_text)
+                st.markdown(llm_response["data"]["candidates"][0]["content"]["parts"][0]["text"])
             else:
                 st.warning(f"AI API System Alert: {llm_response['message']}. Defaulting to strict analytical engine.")
                 gemini_api_key = None
@@ -772,14 +718,10 @@ with tab_rca:
         if fo_rca["ft_delta"] < 0:
             st.markdown(f"### :red[Conversion Deficit:] Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
             rca_bullets = []
-            if fo_rca["fp_dp"] < 0:
-                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span>.</li>")
-            if fo_rca["op_dp"] < 0:
-                rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
-            if fo_rca["up_dp"] < 0:
-                rca_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Unique lead penetration dropped by <span class='dn'>{abs(fo_rca['up_dp'])}pp</span>.</li>")
-            if fo_rca["ls_delta"] < 0:
-                rca_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(fo_rca['ls_delta']):,} leads</span>.</li>")
+            if fo_rca["fp_dp"] < 0: rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span>.</li>")
+            if fo_rca["op_dp"] < 0: rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
+            if fo_rca["up_dp"] < 0: rca_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Unique lead penetration dropped by <span class='dn'>{abs(fo_rca['up_dp'])}pp</span>.</li>")
+            if fo_rca["ls_delta"] < 0: rca_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(fo_rca['ls_delta']):,} leads</span>.</li>")
             st.markdown(f"<ul>{''.join(rca_bullets)}</ul>", unsafe_allow_html=True)
         else:
             st.markdown(f"### :green[Conversion Pipeline Stable:] Target funnel configuration shows expansion of **+{fo_rca['ft_delta']:,} Completed First Trips** vs. prior period baseline parameters.")
@@ -792,20 +734,17 @@ with tab_rca:
     with growth_col1:
         st.markdown("#### Top 5 Growing VLs (Absolute Increase)")
         for vl_name, row in top_growing_vls.iterrows():
-            if row['delta'] > 0:
-                st.markdown(f"- 🟢 **{vl_name}**: Added :green[+{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
+            if row['delta'] > 0: st.markdown(f"- 🟢 **{vl_name}**: Added :green[+{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
     with growth_col2:
         st.markdown("#### Top 5 Degrowing VLs (Absolute Decrease)")
         for vl_name, row in top_degrowing_vls.iterrows():
-            if row['delta'] < 0:
-                st.markdown(f"- 🔴 **{vl_name}**: Dropped :red[{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
+            if row['delta'] < 0: st.markdown(f"- 🔴 **{vl_name}**: Dropped :red[{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
 
     st.markdown("---")
     st.markdown("### B. Drill-down Summary")
     if not laggard_clients:
         st.info("No deficit vectors logged across business channels matching current tracking parameters.")
     else:
-        # Pre-compile the rolling historical dictionary specifically to run the rolling volatility scanners
         rolling_n_weeks = [w for w in allWeeks if w <= anchor_week][:5]
         df_h5 = df_raw[df_raw['week'].isin(rolling_n_weeks)]
 
@@ -819,21 +758,13 @@ with tab_rca:
             </div>
             """, unsafe_allow_html=True)
             
-            # Global baseline checkpoint deltas
             client_bullets = []
-            if client["fp_dp"] < 0:
-                client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_m']:.1f}% to {client['fp_j']:.1f}%).</li>")
-            if client["op_dp"] < 0:
-                client_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(client['op_dp'])}pp</span> (from {client['op_m']:.1f}% to {client['op_j']:.1f}%).</li>")
-            if client["up_dp"] < 0:
-                client_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Uniqueness penetration dropped by <span class='dn'>{abs(client['up_dp'])}pp</span> (from {client['up_m']:.1f}% to {client['up_j']:.1f}%).</li>")
-            if client["ls_delta"] < 0:
-                client_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(client['ls_delta']):,} leads</span>.</li>")
+            if client["fp_dp"] < 0: client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_m']:.1f}% to {client['fp_j']:.1f}%).</li>")
+            if client["op_dp"] < 0: client_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(client['op_dp'])}pp</span> (from {client['op_m']:.1f}% to {client['op_j']:.1f}%).</li>")
+            if client["up_dp"] < 0: client_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Uniqueness penetration dropped by <span class='dn'>{abs(client['up_dp'])}pp</span> (from {client['up_m']:.1f}% to {client['up_j']:.1f}%).</li>")
+            if client["ls_delta"] < 0: client_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(client['ls_delta']):,} leads</span>.</li>")
+            if client_bullets: st.markdown(f"<ul>{''.join(client_bullets)}</ul>", unsafe_allow_html=True)
             
-            if client_bullets:
-                st.markdown(f"<ul>{''.join(client_bullets)}</ul>", unsafe_allow_html=True)
-            
-            # --- ADVANCED GRANULAR BACKWARD CHECKPOINT DIAGNOSTICS SCANNER ---
             df_vl_c = df_curr[df_curr['client'] == client['name']].groupby('vl_name')[['ls', 'uniq', 'ob', 'ft']].sum()
             df_vl_p = df_prev[df_prev['client'] == client['name']].groupby('vl_name')[['ls', 'uniq', 'ob', 'ft']].sum()
             df_matrix = df_vl_c.join(df_vl_p, lsuffix='_c', rsuffix='_p', how='outer').fillna(0)
@@ -846,23 +777,17 @@ with tab_rca:
             col_d1, col_d2, col_d3, col_d4 = st.columns(4)
             with col_d1:
                 st.caption("📉 Top-3 Laggard VLs: **FT Deficit**")
-                for v, r in df_matrix[df_matrix['ft_diff'] < 0].sort_values(by='ft_diff').head(3).iterrows():
-                    st.markdown(f"- **{v}**: `{int(r['ft_diff'])}` FT")
+                for v, r in df_matrix[df_matrix['ft_diff'] < 0].sort_values(by='ft_diff').head(3).iterrows(): st.markdown(f"- **{v}**: `{int(r['ft_diff'])}` FT")
             with col_d2:
                 st.caption("📉 Top-3 Laggard VLs: **OB Deficit**")
-                for v, r in df_matrix[df_matrix['ob_diff'] < 0].sort_values(by='ob_diff').head(3).iterrows():
-                    st.markdown(f"- **{v}**: `{int(r['ob_diff'])}` OB")
+                for v, r in df_matrix[df_matrix['ob_diff'] < 0].sort_values(by='ob_diff').head(3).iterrows(): st.markdown(f"- **{v}**: `{int(r['ob_diff'])}` OB")
             with col_d3:
                 st.caption("📉 Top-3 Laggard VLs: **Uniqueness Deficit**")
-                for v, r in df_matrix[df_matrix['uniq_diff'] < 0].sort_values(by='uniq_diff').head(3).iterrows():
-                    st.markdown(f"- **{v}**: `{int(r['uniq_diff'])}` Uniq")
+                for v, r in df_matrix[df_matrix['uniq_diff'] < 0].sort_values(by='uniq_diff').head(3).iterrows(): st.markdown(f"- **{v}**: `{int(r['uniq_diff'])}` Uniq")
             with col_d4:
                 st.caption("📉 Top-3 Laggard VLs: **LS Volume Deficit**")
-                for v, r in df_matrix[df_matrix['ls_diff'] < 0].sort_values(by='ls_diff').head(3).iterrows():
-                    st.markdown(f"- **{v}**: `{int(r['ls_diff'])}` LS")
+                for v, r in df_matrix[df_matrix['ls_diff'] < 0].sort_values(by='ls_diff').head(3).iterrows(): st.markdown(f"- **{v}**: `{int(r['ls_diff'])}` LS")
 
-            # --- SCANNER 2: THE PENETRATION TRAP PATTERN SCANNER ---
-            # Identifies where a supplier increased referred volume significantly (>= 10%) but suffered a dip in candidate database uniqueness
             st.markdown("<br>", unsafe_allow_html=True)
             trap_vl_alerts = []
             for v, r in df_matrix.iterrows():
@@ -873,20 +798,15 @@ with tab_rca:
             if trap_vl_alerts:
                 st.markdown(f"<ul style='list-style-type: none; padding-left: 0;'>{''.join(trap_vl_alerts)}</ul>", unsafe_allow_html=True)
 
-            # --- SCANNER 3: 5-WEEK ROLLING FUNNEL CONVERSION INSTABILITY ENGINE ---
-            # Checks for standard deviation / variance trends across last 5 weeks on key rates
             df_h5_client = df_h5[df_h5['client'] == client['name']].groupby(['vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
             unstable_vl_alerts = []
-            
             if not df_h5_client.empty:
                 for v in df_h5_client['vl_name'].unique():
                     v_timeline = df_h5_client[df_h5_client['vl_name'] == v].sort_values('week')
                     if len(v_timeline) >= 3:
                         v_timeline['conv_rate'] = v_timeline.apply(lambda row: (row['ft'] / row['ls']) if row['ls'] > 0 else 0.0, axis=1)
                         rate_variance = v_timeline['conv_rate'].std()
-                        # Highlight conversion rates tracking a high standard deviation (>= 15% conversion jitter)
-                        if rate_variance > 0.15:
-                            unstable_vl_alerts.append(v)
+                        if rate_variance > 0.15: unstable_vl_alerts.append(v)
                             
             if unstable_vl_alerts:
                 st.warning(f"🔄 **Erratic Conversion Notice:** The following field leaders logged high funnel conversion inconsistency basis 5-weeks rolling historical parameters: `{', '.join(unstable_vl_alerts[:4])}`")
@@ -917,11 +837,10 @@ with tab_chat:
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
-                with st.spinner("Analyzing rolling 5-week deep data structures..."):
+                with st.spinner("Analyzing rolling 5-week deep data structures (Token Compressed)..."):
                     
                     chat_target_weeks = [w for w in allWeeks if w <= anchor_week][:5]
                     df_chat_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(chat_target_weeks)])
-                    
                     df_chat_weeks = df_chat_raw.groupby(['client', 'vl_name', 'week'])[['ls', 'uniq', 'ob', 'ft']].sum().reset_index()
                     
                     weekly_chronology_tree = {}
@@ -930,21 +849,19 @@ with tab_chat:
                         vl = str(row['vl_name'])
                         wk = str(row['week'])
                         
-                        if c not in weekly_chronology_tree: 
-                            weekly_chronology_tree[c] = {}
-                        if vl not in weekly_chronology_tree[c]: 
-                            weekly_chronology_tree[c][vl] = {}
+                        if c not in weekly_chronology_tree: weekly_chronology_tree[c] = {}
+                        if vl not in weekly_chronology_tree[c]: weekly_chronology_tree[c][vl] = {}
                             
                         weekly_chronology_tree[c][vl][wk] = {
-                            "Lead_Share_LS": int(row['ls']),
-                            "Uniqueness": int(row['uniq']),
-                            "Onboarded_OB": int(row['ob']),
-                            "First_Trips_FT": int(row['ft'])
+                            "LS": int(row['ls']),
+                            "UQ": int(row['uniq']),
+                            "OB": int(row['ob']),
+                            "FT": int(row['ft'])
                         }
                     
                     context_data = {
-                        "macro_summary_aggregates": fo_rca,
-                        "chronological_rolling_5_week_client_x_vl_funnel_tree": weekly_chronology_tree
+                        "macro": fo_rca,
+                        "chrono_tree": weekly_chronology_tree
                     }
                     
                     system_guideline = (
@@ -955,7 +872,7 @@ with tab_chat:
                         "3. NEVER confuse a Client with a VL.\n\n"
                         "ROOT CAUSE ANALYSIS (RCA) EXECUTION MATRIX:\n"
                         "You have been provided with a deep chronology tree representing EXACTLY the last 5 rolling weeks of data for every Client and VL combination. "
-                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness ➔ Lead Share (LS). "
+                        "When analyzing fluctuations, execute a BACKWARD funnel evaluation: First Trips (FT) ➔ Onboarding (OB) ➔ Uniqueness (UQ) ➔ Lead Share (LS). "
                         "Identify the exact week and exact VL driving the client's drop."
                     )
                     
@@ -964,7 +881,7 @@ with tab_chat:
                         gemini_role = "user" if m["role"] == "user" else "model"
                         gemini_history.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
                     
-                    current_prompt_with_context = f"Granular Database Matrix: {json.dumps(context_data)}\n\nUser Operational Question: {prompt}"
+                    current_prompt_with_context = f"Database Matrix: {json.dumps(context_data)}\n\nUser Question: {prompt}"
                     gemini_history.append({"role": "user", "parts": [{"text": current_prompt_with_context}]})
                     
                     gemini_api_key_clean = gemini_api_key.strip()
