@@ -201,7 +201,7 @@ def display_replicated_table(df, key_prefix):
         ft_class = "up" if r["FT Δ"] > 0 else ("dn" if r["FT Δ"] < 0 else "")
 
         formatted_html += "<tr>"
-        formatted_html += f"<td class='bold'>{r['Dimension']}</td>"
+        formatted_html += f"<td class='bold sticky-col'>{r['Dimension']}</td>"
         formatted_html += f"<td><span class='{ls_class}'>{r['LS (Lead Share) Jun']:,}</span></td>"
         formatted_html += f"<td class='fl'>{r['LS (Lead Share) May']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
@@ -229,11 +229,58 @@ def display_replicated_table(df, key_prefix):
     st.iframe(f"""
     <style>
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
+        .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
         table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: #111111 !important; }}
-        th {{ text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; cursor: pointer; user-select: none; }}
-        th:hover {{ background: #eceae4 !important; color: #111111 !important; }}
-        td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; }}
-        tr:hover td {{ background: #f7f6f3 !important; }}
+        
+        /* Freeze Header Row */
+        th {{ 
+            position: sticky; 
+            top: 0; 
+            z-index: 2; 
+            text-align: left; 
+            background: #f7f6f3 !important; 
+            padding: 6px 8px; 
+            border-bottom: 1px solid #eceae4; 
+            font-size: 11px; 
+            color: #666666 !important; 
+            white-space: nowrap; 
+            cursor: pointer; 
+            user-select: none; 
+            box-shadow: 0 1px 0 #eceae4; 
+        }}
+        
+        td {{ 
+            padding: 6px 8px; 
+            border-bottom: 0.5px solid rgba(0,0,0,0.08); 
+            white-space: nowrap; 
+            color: #111111 !important; 
+            background-color: #ffffff; 
+        }}
+        
+        /* Hover state handles background color */
+        tr:hover td {{ background-color: #f7f6f3 !important; }}
+        
+        /* Freeze First Column */
+        td:first-child, th:first-child {{
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            border-right: 1px solid rgba(0,0,0,0.08);
+        }}
+        td:first-child {{
+            background-color: #ffffff; 
+        }}
+        tr:hover td:first-child {{
+            background-color: #f7f6f3 !important;
+        }}
+        
+        /* Top-Left Corner cell needs highest z-index so it stays above both scrolled paths */
+        th:first-child {{
+            z-index: 3;
+            background-color: #f7f6f3 !important;
+            border-right: 1px solid #eceae4;
+        }}
+
         .bold {{ font-weight: 600; color: #111111 !important; }}
         .fl {{ color: #888888 !important; }}
         .up {{ color: #4a9e2f !important; font-weight: 600; }}
@@ -243,7 +290,9 @@ def display_replicated_table(df, key_prefix):
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
     </style>
-    {formatted_html}
+    <div class="table-container">
+        {formatted_html}
+    </div>
     <script>
     document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
         const table = th.closest('table');
@@ -263,12 +312,11 @@ def display_replicated_table(df, key_prefix):
         tbody.append(...rows);
     }})));
     </script>
-    """, height=max(140, len(df)*32 + 50))
+    """, height=max(140, min(550, len(df)*32 + 50)))
 
 
 # --- Hardened API Retry Engine ---
 def call_gemini_with_retries(api_key, payload, max_retries=3):
-    # Cascade model routing architecture to protect availability
     models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]
     headers = {'Content-Type': 'application/json'}
     
@@ -656,9 +704,9 @@ with tab_rca:
             st.markdown(f"### :red[Conversion Deficit:] Total First Trips (FT) dropped by **{abs(fo_rca['ft_delta']):,}** compared to the baseline period.")
             rca_bullets = []
             if fo_rca["fp_dp"] < 0:
-                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Onboarding-to-First Trip conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span>.</li>")
+                rca_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['fp_dp'])}pp</span>.</li>")
             if fo_rca["op_dp"] < 0:
-                rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion from unique leads to onboarding dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
+                rca_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(fo_rca['op_dp'])}pp</span>.</li>")
             if fo_rca["up_dp"] < 0:
                 rca_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Unique lead penetration dropped by <span class='dn'>{abs(fo_rca['up_dp'])}pp</span>.</li>")
             if fo_rca["ls_delta"] < 0:
@@ -747,7 +795,6 @@ with tab_chat:
                 message_placeholder = st.empty()
                 with st.spinner("Analyzing deep data structures..."):
                     
-                    # ENHANCED DEEP DATA DRILLDOWN INJECTION FOR CHAT INTERFACE
                     client_drilldown_insights = {}
                     for cl, data in payload["funnel_drill"].items():
                         client_drilldown_insights[str(cl)] = {
