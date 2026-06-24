@@ -235,6 +235,9 @@ def display_replicated_table(df, key_prefix):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -285,9 +288,11 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
+        
         if dimension_order:
-            grp[primary_dim] = pd.Categorical(grp[primary_dim], categories=dimension_order, ordered=True)
-            grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
+            # Mathematical explicit rank mapping to fully bypass Pandas alphabetical defaults
+            grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
+            grp = grp.sort_values(by=['_rank', 'week'], ascending=[True, False]).drop(columns=['_rank'])
         else:
             grp = grp.sort_values(by=[primary_dim, 'week'], ascending=[True, False])
     else:
@@ -349,6 +354,9 @@ def display_trend_html(grp, group_cols, key_prefix):
         tr:hover td:first-child {{ background-color: #f7f6f3 !important; }}
         th:first-child {{ z-index: 3; background-color: #f7f6f3 !important; border-right: 1px solid #eceae4; }}
         .bold {{ font-weight: 600; color: #111111 !important; }}
+        .fl {{ color: #888888 !important; }}
+        .up {{ color: #4a9e2f !important; font-weight: 600; }}
+        .dn {{ color: #e05252 !important; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -356,6 +364,116 @@ def display_trend_html(grp, group_cols, key_prefix):
     </style>
     <div class="table-container">{html}</div>
     """, height=max(140, min(550, len(grp)*32 + 50)))
+
+# --- Token-Optimized API Retry Engine for 429 Failover ---
+def call_gemini_with_retries(api_key, payload, max_retries=4):
+    models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    headers = {'Content-Type': 'application/json'}
+    
+    last_error = None
+    for model in models_to_try:
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(endpoint, headers=headers, json=payload, timeout=45)
+                if resp.status_code == 200:
+                    return {"status": "success", "data": resp.json()}
+                elif resp.status_code == 401:
+                    return {"status": "error", "message": "Invalid API Key. Verify your Gemini key in Google AI Studio."}
+                elif resp.status_code == 404:
+                    last_error = f"Model {model} deprecated (404)."
+                    break 
+                elif resp.status_code in [429, 503]:  
+                    last_error = f"Model {model} rate limited (Status {resp.status_code})."
+                    if attempt < max_retries - 1:
+                        time.sleep((2 ** attempt) * 4)
+                        continue
+                    break 
+                else:
+                    return {"status": "error", "message": f"Status {resp.status_code}: {resp.text[:200]}"}
+            except requests.exceptions.Timeout:
+                last_error = f"Connection to {model} Timed Out."
+                if attempt < max_retries - 1:
+                    time.sleep((2 ** attempt) * 4)
+                    continue
+                break
+            except requests.exceptions.RequestException as e:
+                last_error = f"Network Exception on {model}: {str(e)}"
+                if attempt < max_retries - 1:
+                    time.sleep((2 ** attempt) * 4)
+                    continue
+                break
+    return {"status": "error", "message": last_error}
+
+SORT_METRICS_MAP = {
+    "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
+    "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
+    "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", "FT Jun": "FT (First Trip) Jun",
+    "LS Jun": "LS (Lead Share) Jun", "Uniq% Jun": "Uniq%", "OB% Jun": "OB%", "FT/OB% Jun": "FT/OB%"
+}
+
+def build_html_metric_payload(df_c, df_p):
+    compiled = {}
+    def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
+    def get_pp(a, b): return round(a - b, 2)
+
+    fj = {"ls": int(df_c['ls'].sum()), "uniqueness": int(df_c['uniq'].sum()), "ob": int(df_c['ob'].sum()), "ft": int(df_c['ft'].sum())}
+    fm = {"ls": int(df_p['ls'].sum()), "uniqueness": int(df_p['uniq'].sum()), "ob": int(df_p['ob'].sum()), "ft": int(df_p['ft'].sum())}
+    
+    compiled["overall_funnel"] = {
+        "ls_j": fj["ls"], "ls_m": fm["ls"], "ls_delta": fj["ls"] - fm["ls"],
+        "uniq_j": fj["uniqueness"], "uniq_m": fm["uniqueness"], "uniq_delta": fj["uniqueness"] - fm["uniqueness"],
+        "up_j": get_pct(fj["uniqueness"], fj["ls"]), "up_m": get_pct(fm["uniqueness"], fm["ls"]), "up_dp": get_pp(get_pct(fj["uniqueness"], fj["ls"]), get_pct(fm["uniqueness"], fm["ls"])),
+        "ob_j": fj["ob"], "ob_m": fm["ob"], "ob_delta": fj["ob"] - fm["ob"],
+        "op_j": get_pct(fj["ob"], fj["uniqueness"]), "op_m": get_pct(fm["ob"], fm["uniqueness"]), "op_dp": get_pp(get_pct(fj["ob"], fj["uniqueness"]), get_pct(fm["ob"], fm["uniqueness"])),
+        "ft_j": fj["ft"], "ft_m": fm["ft"], "ft_delta": fj["ft"] - fm["ft"],
+        "fp_j": get_pct(fj["ft"], fj["ob"]), "fp_m": get_pct(fm["ft"], fm["ob"]), "fp_dp": get_pp(get_pct(fj["ft"], fj["ob"]), get_pct(fm["ft"], fm["ob"]))
+    }
+
+    def roll_dim(df_w_c, df_w_p, dim_key):
+        c_grp = df_w_c.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
+        p_grp = df_w_p.groupby(dim_key)[['ls', 'uniq', 'ob', 'ft']].sum()
+        m = c_grp.join(p_grp, lsuffix='_c', rsuffix='_p', how='outer').fillna(0)
+        res = []
+        for d, r in m.iterrows():
+            res.append({
+                "dim": str(d),
+                "jun": {"ls": int(r['ls_c']), "uniqueness": int(r['uniq_c']), "ob": int(r['ob_c']), "ft": int(r['ft_c'])},
+                "may": {"ls": int(r['ls_p']), "uniqueness": int(r['uniq_p']), "ob": int(r['ob_p']), "ft": int(r['ft_p'])}
+            })
+        return res
+
+    compiled["by_client"] = roll_dim(df_c, df_p, 'client')
+    compiled["by_product"] = roll_dim(df_c, df_p, 'lead_referral_type') if 'lead_referral_type' in df_c.columns else roll_dim(df_c, df_p, 'client').copy()
+    compiled["by_region"] = roll_dim(df_c, df_p, 'region')
+    compiled["by_vl"] = roll_dim(df_c, df_p, 'vl_name')
+    compiled["by_cl"] = roll_dim(df_c, df_p, 'cl')
+    compiled["by_am"] = roll_dim(df_c, df_p, 'am_name')
+    
+    compiled["funnel_drill"] = {}
+    for cl in df_c['client'].unique():
+        sub_c = df_c[df_c['client'] == cl]
+        sub_p = df_p[df_p['client'] == cl]
+        compiled["funnel_drill"][cl] = {
+            "by_product": roll_dim(sub_c, sub_p, 'lead_referral_type') if 'lead_referral_type' in df_c.columns else [],
+            "by_region": roll_dim(sub_c, sub_p, 'region'),
+            "by_vl": roll_dim(sub_c, sub_p, 'vl_name')
+        }
+
+    compiled["region_drill"] = {}
+    for rg in df_c['region'].unique():
+        sub_rg = df_c[df_c['region'] == rg]
+        sub_rg_p = df_p[df_p['region'] == rg]
+        compiled["region_drill"][rg] = {
+            "by_vl": roll_dim(sub_rg, sub_rg_p, 'vl_name')
+        }
+
+    return compiled
+
+payload = build_html_metric_payload(df_curr, df_prev)
+
+# --- 7. Layout Nav Tabs Initialization ---
+tab_ui, tab_trends, tab_rca, tab_chat = st.tabs(["📊 Funnel view", "📈 Rolling Trends", "✨ AI Summary", "💬 Ask AI"])
 
 # ==========================================
 # RENDER TAB: EXECUTIVE REPLICATED FUNNEL
@@ -457,6 +575,31 @@ with tab_ui:
     if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
 
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    
+    df_s6_view = df_client_prod_full.copy()
+    if selected_client_product and "All" not in selected_client_product: df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
+    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
+
+    st.markdown("#### Region × VL Drilldown")
+    active_region_list = sorted(list(df_curr['region'].dropna().unique()))
+    selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
+    
+    df_s11_view = df_reg_vl_full.copy()
+    if selected_region_vl and "All" not in selected_region_vl: df_s11_view = df_s11_view[df_s11_view['Dimension'].str.split(' · ').str[0].isin(selected_region_vl)]
+    if not df_s11_view.empty: df_s11_view = df_s11_view.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s11_view.head(top_n_drill_s11), "s11")
+
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
 # ==========================================
@@ -496,15 +639,19 @@ with tab_trends:
     order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
 
     df_vl_trend_view = df_trend_raw.copy()
-    df_rank_curr = df_curr.copy()
-    df_rank_prev = df_prev.copy()
 
     if "All" not in trend_client_filter and trend_client_filter:
-        df_vl_trend_view = df_trend_raw[df_trend_raw['client'].isin(trend_client_filter)].copy()
-        df_rank_curr = df_rank_curr[df_rank_curr['client'].isin(trend_client_filter)]
-        df_rank_prev = df_rank_prev[df_rank_prev['client'].isin(trend_client_filter)]
+        df_vl_trend_view = df_vl_trend_view[df_vl_trend_view['client'].isin(trend_client_filter)]
 
-    vl_trend_payload = build_html_metric_payload(df_rank_curr, df_rank_prev)["by_vl"]
+    # --- DYNAMIC ROLLING RANKING SYSTEM ENGINE ---
+    # Ranks the VLs by calculating the absolute shift strictly between the oldest and newest week in the slider window
+    week_newest = trend_target_weeks[0]
+    week_oldest = trend_target_weeks[-1]
+    
+    df_rank_newest = df_vl_trend_view[df_vl_trend_view['week'] == week_newest]
+    df_rank_oldest = df_vl_trend_view[df_vl_trend_view['week'] == week_oldest]
+
+    vl_trend_payload = build_html_metric_payload(df_rank_newest, df_rank_oldest)["by_vl"]
     df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
     
     top_vls_list = None
@@ -588,8 +735,6 @@ with tab_rca:
     if gemini_api_key:
         with st.spinner("🧠 Querying Gemini AI block engine to compile corporate conversion summary narrative..."):
             gemini_api_key_clean = gemini_api_key.strip()
-            
-            # Token Compression Layer: Flatten context down into ultra-minified token tokens
             minified_text_block = (
                 f"Funnel Overall: LS_Cur={fo_rca['ls_j']}, LS_Pr={fo_rca['ls_m']}, Uniq_Cur={fo_rca['uniq_j']}, Uniq_Pr={fo_rca['uniq_m']}, "
                 f"OB_Cur={fo_rca['ob_j']}, OB_Pr={fo_rca['ob_m']}, FT_Cur={fo_rca['ft_j']}, FT_Pr={fo_rca['ft_m']}. "
@@ -611,7 +756,6 @@ with tab_rca:
                 st.markdown(llm_response["data"]["candidates"][0]["content"]["parts"][0]["text"])
                 ai_rendered_successfully = True
 
-    # --- CRITICAL HARDENED LOCAL ANOMALY SCANNER FALLBACK ---
     if not ai_rendered_successfully:
         if fo_rca["ft_delta"] < 0:
             st.markdown(f"#### Pipeline Summary (Deterministic Standby Layer Active)")
