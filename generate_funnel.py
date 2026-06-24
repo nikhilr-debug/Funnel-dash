@@ -98,7 +98,6 @@ elif view_mode == "WTD (Week-to-Date)":
     LBL_CURR = curr_start.strftime('%d %b')
     LBL_PREV = prev_start.strftime('%d %b')
 else:
-    # Custom Date Range Logic
     st.sidebar.markdown("**🗓️ Custom Date Selection**")
     default_curr_start = reference_date - timedelta(days=6)
     default_curr_end = reference_date
@@ -186,7 +185,8 @@ def get_colored_delta(v, suffix=""):
     if v is None or pd.isna(v): return "—"
     if v == 0: return f"0{suffix}"
     cl = "up" if v > 0 else "dn"
-    sign = "+" if v > 0 else ""
+    # CRITICAL FIX: Ensure negative numbers actually output a minus sign
+    sign = "+" if v > 0 else "-"
     if suffix in ["pp", "%"]: return f'<span class="{cl}">{sign}{abs(v):.2f}{suffix}</span>'
     val = abs(v)
     if val >= 1e6: f_val = f"{val/1e6:.1f}M"
@@ -339,10 +339,23 @@ def display_replicated_table(df, key_prefix):
         const rows = Array.from(tbody.querySelectorAll('tr'));
         const index = Array.from(th.parentNode.children).indexOf(th);
         const asc = th.dataset.asc = !th.dataset.asc;
+        
+        // CRITICAL FIX: Math-safe string parsing block for JS Headers
+        const parseValue = (valStr) => {{
+            let cleanStr = valStr.replace(/[%|,|pp|+|↕]/g, '').trim();
+            let multiplier = 1;
+            if (cleanStr.endsWith('M')) {{ multiplier = 1000000; cleanStr = cleanStr.replace('M', ''); }}
+            else if (cleanStr.endsWith('K')) {{ multiplier = 1000; cleanStr = cleanStr.replace('K', ''); }}
+            let parsed = parseFloat(cleanStr);
+            return isNaN(parsed) ? NaN : parsed * multiplier;
+        }};
+
         rows.sort((rowA, rowB) => {{
-            let cellA = rowA.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
-            let cellB = rowB.children[index].innerText.replace(/[%|,|pp|M|K|+|↕]/g, '').trim();
-            const numA = parseFloat(cellA); const numB = parseFloat(cellB);
+            let cellA = rowA.children[index].innerText;
+            let cellB = rowB.children[index].innerText;
+            const numA = parseValue(cellA); 
+            const numB = parseValue(cellB);
+            
             if (!isNaN(numA) && !isNaN(numB)) return asc ? numA - numB : numB - numA;
             return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
         }});
@@ -462,7 +475,7 @@ def display_trend_html(grp, group_cols, key_prefix):
         body {{ background-color: #ffffff !important; color: #111111 !important; margin: 0; padding: 0; }}
         .table-container {{ width: 100%; height: 100vh; overflow: auto; position: relative; }}
         table {{ width: 100%; border-collapse: collapse; font-family: -apple-system, sans-serif; font-size: 12px; }}
-        th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; box-shadow: 0 1px 0 #eceae4; }}
+        th {{ position: sticky; top: 0; z-index: 2; text-align: left; background: #f7f6f3 !important; padding: 6px 8px; border-bottom: 1px solid #eceae4; font-size: 11px; color: #666666 !important; white-space: nowrap; cursor: pointer; user-select: none; box-shadow: 0 1px 0 #eceae4; }}
         td {{ padding: 6px 8px; border-bottom: 0.5px solid rgba(0,0,0,0.08); white-space: nowrap; color: #111111 !important; background-color: #ffffff; }}
         tr:hover td {{ background-color: #f7f6f3 !important; }}
         td:first-child, th:first-child {{ position: sticky; left: 0; z-index: 1; border-right: 1px solid rgba(0,0,0,0.08); }}
@@ -480,6 +493,36 @@ def display_trend_html(grp, group_cols, key_prefix):
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
     </style>
     <div class="table-container">{html}</div>
+    <script>
+    document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
+        const table = th.closest('table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const index = Array.from(th.parentNode.children).indexOf(th);
+        const asc = th.dataset.asc = !th.dataset.asc;
+        
+        // CRITICAL FIX: Math-safe string parsing block for JS Headers
+        const parseValue = (valStr) => {{
+            let cleanStr = valStr.replace(/[%|,|pp|+|↕]/g, '').trim();
+            let multiplier = 1;
+            if (cleanStr.endsWith('M')) {{ multiplier = 1000000; cleanStr = cleanStr.replace('M', ''); }}
+            else if (cleanStr.endsWith('K')) {{ multiplier = 1000; cleanStr = cleanStr.replace('K', ''); }}
+            let parsed = parseFloat(cleanStr);
+            return isNaN(parsed) ? NaN : parsed * multiplier;
+        }};
+
+        rows.sort((rowA, rowB) => {{
+            let cellA = rowA.children[index].innerText;
+            let cellB = rowB.children[index].innerText;
+            const numA = parseValue(cellA); 
+            const numB = parseValue(cellB);
+            
+            if (!isNaN(numA) && !isNaN(numB)) return asc ? numA - numB : numB - numA;
+            return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+        }});
+        tbody.append(...rows);
+    }})));
+    </script>
     """, height=max(140, min(550, len(grp)*32 + 50)))
 
 # --- Token-Optimized API Retry Engine for 429 Failover ---
