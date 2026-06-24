@@ -207,11 +207,11 @@ def get_pill_pct(p, metric_type):
 def transform_to_replicated_dataframe(rows_list):
     processed = []
     
-    # Calculate Total Variances for Contribution (Mix %)
-    tot_ls_d = sum((r["curr"]["ls"] - r["prev"]["ls"]) for r in rows_list)
-    tot_uq_d = sum((r["curr"]["uniqueness"] - r["prev"]["uniqueness"]) for r in rows_list)
-    tot_ob_d = sum((r["curr"]["ob"] - r["prev"]["ob"]) for r in rows_list)
-    tot_ft_d = sum((r["curr"]["ft"] - r["prev"]["ft"]) for r in rows_list)
+    # Calculate Absolute Gross Variances for True Contribution (Mix %)
+    tot_ls_d_abs = sum(abs(r["curr"]["ls"] - r["prev"]["ls"]) for r in rows_list)
+    tot_uq_d_abs = sum(abs(r["curr"]["uniqueness"] - r["prev"]["uniqueness"]) for r in rows_list)
+    tot_ob_d_abs = sum(abs(r["curr"]["ob"] - r["prev"]["ob"]) for r in rows_list)
+    tot_ft_d_abs = sum(abs(r["curr"]["ft"] - r["prev"]["ft"]) for r in rows_list)
     
     for r in rows_list:
         vc, vp = r["curr"], r["prev"]
@@ -221,10 +221,10 @@ def transform_to_replicated_dataframe(rows_list):
         ob_d = vc["ob"] - vp["ob"]
         ft_d = vc["ft"] - vp["ft"]
         
-        ls_cntrb = round((ls_d / tot_ls_d * 100), 1) if tot_ls_d != 0 else 0.0
-        uq_cntrb = round((uq_d / tot_uq_d * 100), 1) if tot_uq_d != 0 else 0.0
-        ob_cntrb = round((ob_d / tot_ob_d * 100), 1) if tot_ob_d != 0 else 0.0
-        ft_cntrb = round((ft_d / tot_ft_d * 100), 1) if tot_ft_d != 0 else 0.0
+        ls_cntrb = round((abs(ls_d) / tot_ls_d_abs * 100), 1) if tot_ls_d_abs != 0 else 0.0
+        uq_cntrb = round((abs(uq_d) / tot_uq_d_abs * 100), 1) if tot_uq_d_abs != 0 else 0.0
+        ob_cntrb = round((abs(ob_d) / tot_ob_d_abs * 100), 1) if tot_ob_d_abs != 0 else 0.0
+        ft_cntrb = round((abs(ft_d) / tot_ft_d_abs * 100), 1) if tot_ft_d_abs != 0 else 0.0
         
         up_curr = round((vc["uniqueness"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0
         up_prev = round((vp["uniqueness"] / vp["ls"] * 100), 2) if vp["ls"] > 0 else 0.0
@@ -383,16 +383,16 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['OB/LS% Δpp'] = grp.groupby(primary_dim)['OB/LS%'].diff()
         grp['FT/LS% Δpp'] = grp.groupby(primary_dim)['FT/LS%'].diff()
 
-        # Weekly Variance Contribution
-        tot_ls_d_wk = grp.groupby('week')['LS Δ'].transform('sum')
-        tot_uq_d_wk = grp.groupby('week')['Uniq Δ'].transform('sum')
-        tot_ob_d_wk = grp.groupby('week')['OB Δ'].transform('sum')
-        tot_ft_d_wk = grp.groupby('week')['FT Δ'].transform('sum')
+        # Absolute Weekly Variance Contribution
+        tot_ls_d_wk_abs = grp.groupby('week')['LS Δ'].transform(lambda x: x.abs().sum())
+        tot_uq_d_wk_abs = grp.groupby('week')['Uniq Δ'].transform(lambda x: x.abs().sum())
+        tot_ob_d_wk_abs = grp.groupby('week')['OB Δ'].transform(lambda x: x.abs().sum())
+        tot_ft_d_wk_abs = grp.groupby('week')['FT Δ'].transform(lambda x: x.abs().sum())
         
-        grp['LS Δ Cntrb%'] = np.where(tot_ls_d_wk != 0, (grp['LS Δ'] / tot_ls_d_wk * 100).round(1), 0.0)
-        grp['Uniq Δ Cntrb%'] = np.where(tot_uq_d_wk != 0, (grp['Uniq Δ'] / tot_uq_d_wk * 100).round(1), 0.0)
-        grp['OB Δ Cntrb%'] = np.where(tot_ob_d_wk != 0, (grp['OB Δ'] / tot_ob_d_wk * 100).round(1), 0.0)
-        grp['FT Δ Cntrb%'] = np.where(tot_ft_d_wk != 0, (grp['FT Δ'] / tot_ft_d_wk * 100).round(1), 0.0)
+        grp['LS Δ Cntrb%'] = np.where(tot_ls_d_wk_abs != 0, (grp['LS Δ'].abs() / tot_ls_d_wk_abs * 100).round(1), 0.0)
+        grp['Uniq Δ Cntrb%'] = np.where(tot_uq_d_wk_abs != 0, (grp['Uniq Δ'].abs() / tot_uq_d_wk_abs * 100).round(1), 0.0)
+        grp['OB Δ Cntrb%'] = np.where(tot_ob_d_wk_abs != 0, (grp['OB Δ'].abs() / tot_ob_d_wk_abs * 100).round(1), 0.0)
+        grp['FT Δ Cntrb%'] = np.where(tot_ft_d_wk_abs != 0, (grp['FT Δ'].abs() / tot_ft_d_wk_abs * 100).round(1), 0.0)
 
         if dimension_order:
             grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
@@ -681,6 +681,18 @@ with tab_ui:
     if selected_client_region and "All" not in selected_client_region: df_s8_view = df_s8_view[df_s8_view['Dimension'].str.split(' · ').str[0].isin(selected_client_region)]
     if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=sort_metrics_map[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
+
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    
+    df_s6_view = df_client_prod_full.copy()
+    if selected_client_product and "All" not in selected_client_product: df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
+    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=sort_metrics_map[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
 
     st.markdown("#### Region × VL Drilldown")
     active_region_list = sorted(list(df_curr['region'].dropna().unique()))
