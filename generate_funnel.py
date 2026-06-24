@@ -87,11 +87,15 @@ if view_mode == "MTD (Month-to-Date)":
         prev_end = date(prev_year, prev_month, reference_date.day)
     except ValueError:
         prev_end = (date(prev_year, prev_month + 1, 1) - timedelta(days=1))
+    LBL_CURR = curr_start.strftime('%b')
+    LBL_PREV = prev_start.strftime('%b')
 elif view_mode == "WTD (Week-to-Date)":
     curr_start = reference_date - timedelta(days=reference_date.weekday())
     curr_end = reference_date
     prev_start = curr_start - timedelta(days=7)
     prev_end = curr_end - timedelta(days=7)
+    LBL_CURR = curr_start.strftime('%d %b')
+    LBL_PREV = prev_start.strftime('%d %b')
 else:
     # Custom Date Range Logic
     st.sidebar.markdown("**🗓️ Custom Date Selection**")
@@ -108,6 +112,23 @@ else:
     
     prev_start = prev_dates[0] if isinstance(prev_dates, tuple) and len(prev_dates) > 0 else prev_dates
     prev_end = prev_dates[1] if isinstance(prev_dates, tuple) and len(prev_dates) > 1 else prev_start
+    LBL_CURR = "Cur"
+    LBL_PREV = "Prv"
+
+# --- Dynamic Sort Mapping Engine ---
+sort_metrics_map = {
+    "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
+    "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
+    "OB/LS% Δpp": "OB/LS Δpp", "FT/LS% Δpp": "FT/LS Δpp",
+    "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", 
+    f"FT {LBL_CURR}": f"FT (First Trip) {LBL_CURR}",
+    f"LS {LBL_CURR}": f"LS (Lead Share) {LBL_CURR}", 
+    f"Uniq% {LBL_CURR}": "Uniq%", 
+    f"OB% {LBL_CURR}": "OB%", 
+    f"FT/OB% {LBL_CURR}": "FT/OB%",
+    f"OB/LS% {LBL_CURR}": "OB/LS%", 
+    f"FT/LS% {LBL_CURR}": "FT/LS%"
+}
 
 # --- Sidebar Multi-Select Slicers Suite ---
 st.sidebar.markdown("---")
@@ -184,32 +205,31 @@ def get_pill_pct(p, metric_type):
 def transform_to_replicated_dataframe(rows_list):
     processed = []
     for r in rows_list:
-        vj, vm = r["jun"], r["may"]
-        up_j = round((vj["uniqueness"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
-        up_m = round((vm["uniqueness"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
-        op_j = round((vj["ob"] / vj["uniqueness"] * 100), 2) if vj["uniqueness"] > 0 else (round((vj["ob"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0)
-        const_base_p = vm["uniqueness"] if vm["uniqueness"] > 0 else vm["ls"]
-        op_m = round((vm["ob"] / const_base_p * 100), 2) if const_base_p > 0 else 0.0
-        fp_j = round((vj["ft"] / vj["ob"] * 100), 2) if vj["ob"] > 0 else 0.0
-        fp_m = round((vm["ft"] / vm["ob"] * 100), 2) if vm["ob"] > 0 else 0.0
+        vc, vp = r["curr"], r["prev"]
+        up_curr = round((vc["uniqueness"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0
+        up_prev = round((vp["uniqueness"] / vp["ls"] * 100), 2) if vp["ls"] > 0 else 0.0
+        op_curr = round((vc["ob"] / vc["uniqueness"] * 100), 2) if vc["uniqueness"] > 0 else (round((vc["ob"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0)
+        const_base_p = vp["uniqueness"] if vp["uniqueness"] > 0 else vp["ls"]
+        op_prev = round((vp["ob"] / const_base_p * 100), 2) if const_base_p > 0 else 0.0
+        fp_curr = round((vc["ft"] / vc["ob"] * 100), 2) if vc["ob"] > 0 else 0.0
+        fp_prev = round((vp["ft"] / vp["ob"] * 100), 2) if vp["ob"] > 0 else 0.0
         
-        # New Macro Conversion Rates
-        ob_ls_j = round((vj["ob"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
-        ob_ls_m = round((vm["ob"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
-        ft_ls_j = round((vj["ft"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
-        ft_ls_m = round((vm["ft"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
+        ob_ls_curr = round((vc["ob"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0
+        ob_ls_prev = round((vp["ob"] / vp["ls"] * 100), 2) if vp["ls"] > 0 else 0.0
+        ft_ls_curr = round((vc["ft"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0
+        ft_ls_prev = round((vp["ft"] / vp["ls"] * 100), 2) if vp["ls"] > 0 else 0.0
 
         processed.append({
             "Dimension": r["dim"],
-            "LS (Lead Share) Jun": vj["ls"], "LS (Lead Share) May": vm["ls"], "LS Δ": vj["ls"] - vm["ls"], "LS Δ%": round(((vj["ls"] - vm["ls"]) / vm["ls"] * 100), 1) if vm["ls"] > 0 else None,
-            "Unique Jun": vj["uniqueness"], "Unique May": vm["uniqueness"], "Unique Δ": vj["uniqueness"] - vm["uniqueness"],
-            "Uniq%": up_j, "Uniq Δpp": round(up_j - up_m, 2),
-            "OB (Onboarded) Jun": vj["ob"], "OB (Onboarded) May": vm["ob"], "OB Δ": vj["ob"] - vm["ob"],
-            "OB%": op_j, "OB Δpp": round(op_j - op_m, 2),
-            "FT (First Trip) Jun": vj["ft"], "FT (First Trip) May": vm["ft"], "FT Δ": vj["ft"] - vm["ft"], "FT Δ%": round(((vj["ft"] - vm["ft"]) / vm["ft"] * 100), 1) if vm["ft"] > 0 else None,
-            "FT/OB%": fp_j, "FT/OB Δpp": round(fp_j - fp_m, 2),
-            "OB/LS%": ob_ls_j, "OB/LS Δpp": round(ob_ls_j - ob_ls_m, 2),
-            "FT/LS%": ft_ls_j, "FT/LS Δpp": round(ft_ls_j - ft_ls_m, 2)
+            f"LS (Lead Share) {LBL_CURR}": vc["ls"], f"LS (Lead Share) {LBL_PREV}": vp["ls"], "LS Δ": vc["ls"] - vp["ls"], "LS Δ%": round(((vc["ls"] - vp["ls"]) / vp["ls"] * 100), 1) if vp["ls"] > 0 else None,
+            f"Unique {LBL_CURR}": vc["uniqueness"], f"Unique {LBL_PREV}": vp["uniqueness"], "Unique Δ": vc["uniqueness"] - vp["uniqueness"],
+            "Uniq%": up_curr, "Uniq Δpp": round(up_curr - up_prev, 2),
+            f"OB (Onboarded) {LBL_CURR}": vc["ob"], f"OB (Onboarded) {LBL_PREV}": vp["ob"], "OB Δ": vc["ob"] - vp["ob"],
+            "OB%": op_curr, "OB Δpp": round(op_curr - op_prev, 2),
+            f"FT (First Trip) {LBL_CURR}": vc["ft"], f"FT (First Trip) {LBL_PREV}": vp["ft"], "FT Δ": vc["ft"] - vp["ft"], "FT Δ%": round(((vc["ft"] - vp["ft"]) / vp["ft"] * 100), 1) if vp["ft"] > 0 else None,
+            "FT/OB%": fp_curr, "FT/OB Δpp": round(fp_curr - fp_prev, 2),
+            "OB/LS%": ob_ls_curr, "OB/LS Δpp": round(ob_ls_curr - ob_ls_prev, 2),
+            "FT/LS%": ft_ls_curr, "FT/LS Δpp": round(ft_ls_curr - ft_ls_prev, 2)
         })
     return pd.DataFrame(processed)
 
@@ -218,8 +238,8 @@ def display_replicated_table(df, key_prefix):
         st.write("No metrics matching active filter states.")
         return
     ordered_cols = [
-        "Dimension", "LS (Lead Share) Jun", "LS (Lead Share) May", "LS Δ", "LS Δ%", "Unique Jun", "Unique May", "Unique Δ",
-        "Uniq%", "Uniq Δpp", "OB (Onboarded) Jun", "OB (Onboarded) May", "OB Δ", "OB%", "OB Δpp", "FT (First Trip) Jun", "FT (First Trip) May",
+        "Dimension", f"LS (Lead Share) {LBL_CURR}", f"LS (Lead Share) {LBL_PREV}", "LS Δ", "LS Δ%", f"Unique {LBL_CURR}", f"Unique {LBL_PREV}", "Unique Δ",
+        "Uniq%", "Uniq Δpp", f"OB (Onboarded) {LBL_CURR}", f"OB (Onboarded) {LBL_PREV}", "OB Δ", "OB%", "OB Δpp", f"FT (First Trip) {LBL_CURR}", f"FT (First Trip) {LBL_PREV}",
         "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp", "OB/LS%", "OB/LS Δpp", "FT/LS%", "FT/LS Δpp"
     ]
     df = df[ordered_cols].copy()
@@ -231,22 +251,22 @@ def display_replicated_table(df, key_prefix):
         ft_class = "up" if r["FT Δ"] > 0 else ("dn" if r["FT Δ"] < 0 else "")
         formatted_html += "<tr>"
         formatted_html += f"<td class='bold sticky-col'>{r['Dimension']}</td>"
-        formatted_html += f"<td><span class='{ls_class}'>{r['LS (Lead Share) Jun']:,}</span></td>"
-        formatted_html += f"<td class='fl'>{r['LS (Lead Share) May']:,}</td>"
+        formatted_html += f"<td><span class='{ls_class}'>{r[f'LS (Lead Share) {LBL_CURR}']:,}</span></td>"
+        formatted_html += f"<td class='fl'>{r[f'LS (Lead Share) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
-        formatted_html += f"<td><span class='{uniq_class}'>{r['Unique Jun']:,}</span></td>"
-        formatted_html += f"<td><span class='fl'>{r['Unique May']:,}</span></td>"
+        formatted_html += f"<td><span class='{uniq_class}'>{r[f'Unique {LBL_CURR}']:,}</span></td>"
+        formatted_html += f"<td><span class='fl'>{r[f'Unique {LBL_PREV}']:,}</span></td>"
         formatted_html += f"<td>{get_colored_delta(r['Unique Δ'])}</td>"
         formatted_html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['Uniq Δpp'], 'pp')}</td>"
-        formatted_html += f"<td><span class='{ob_class}'>{r['OB (Onboarded) Jun']:,}</span></td>"
-        formatted_html += f"<td class='fl'>{r['OB (Onboarded) May']:,}</td>"
+        formatted_html += f"<td><span class='{ob_class}'>{r[f'OB (Onboarded) {LBL_CURR}']:,}</span></td>"
+        formatted_html += f"<td class='fl'>{r[f'OB (Onboarded) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δ'])}</td>"
         formatted_html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δpp'], 'pp')}</td>"
-        formatted_html += f"<td class='bold'><span class='{ft_class}'>{r['FT (First Trip) Jun']:,}</span></td>"
-        formatted_html += f"<td class='fl'>{r['FT (First Trip) May']:,}</td>"
+        formatted_html += f"<td class='bold'><span class='{ft_class}'>{r[f'FT (First Trip) {LBL_CURR}']:,}</span></td>"
+        formatted_html += f"<td class='fl'>{r[f'FT (First Trip) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
         formatted_html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
@@ -334,7 +354,6 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT/LS% Δpp'] = grp.groupby(primary_dim)['FT/LS%'].diff()
 
         if dimension_order:
-            # Mathematical explicit rank mapping to fully bypass Pandas alphabetical defaults
             grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
             grp = grp.sort_values(by=['_rank', 'week'], ascending=[True, False]).drop(columns=['_rank'])
         else:
@@ -457,31 +476,22 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
                 break
     return {"status": "error", "message": last_error}
 
-SORT_METRICS_MAP = {
-    "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
-    "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
-    "OB/LS% Δpp": "OB/LS Δpp", "FT/LS% Δpp": "FT/LS Δpp",
-    "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", "FT Jun": "FT (First Trip) Jun",
-    "LS Jun": "LS (Lead Share) Jun", "Uniq% Jun": "Uniq%", "OB% Jun": "OB%", "FT/OB% Jun": "FT/OB%",
-    "OB/LS% Jun": "OB/LS%", "FT/LS% Jun": "FT/LS%"
-}
-
 def build_html_metric_payload(df_c, df_p):
     compiled = {}
     def get_pct(a, b): return round((a / b * 100), 2) if b > 0 else 0.0
     def get_pp(a, b): return round(a - b, 2)
 
-    fj = {"ls": int(df_c['ls'].sum()), "uniqueness": int(df_c['uniq'].sum()), "ob": int(df_c['ob'].sum()), "ft": int(df_c['ft'].sum())}
-    fm = {"ls": int(df_p['ls'].sum()), "uniqueness": int(df_p['uniq'].sum()), "ob": int(df_p['ob'].sum()), "ft": int(df_p['ft'].sum())}
+    fc = {"ls": int(df_c['ls'].sum()), "uniqueness": int(df_c['uniq'].sum()), "ob": int(df_c['ob'].sum()), "ft": int(df_c['ft'].sum())}
+    fp = {"ls": int(df_p['ls'].sum()), "uniqueness": int(df_p['uniq'].sum()), "ob": int(df_p['ob'].sum()), "ft": int(df_p['ft'].sum())}
     
     compiled["overall_funnel"] = {
-        "ls_j": fj["ls"], "ls_m": fm["ls"], "ls_delta": fj["ls"] - fm["ls"],
-        "uniq_j": fj["uniqueness"], "uniq_m": fm["uniqueness"], "uniq_delta": fj["uniqueness"] - fm["uniqueness"],
-        "up_j": get_pct(fj["uniqueness"], fj["ls"]), "up_m": get_pct(fm["uniqueness"], fm["ls"]), "up_dp": get_pp(get_pct(fj["uniqueness"], fj["ls"]), get_pct(fm["uniqueness"], fm["ls"])),
-        "ob_j": fj["ob"], "ob_m": fm["ob"], "ob_delta": fj["ob"] - fm["ob"],
-        "op_j": get_pct(fj["ob"], fj["uniqueness"]), "op_m": get_pct(fm["ob"], fm["uniqueness"]), "op_dp": get_pp(get_pct(fj["ob"], fj["uniqueness"]), get_pct(fm["ob"], fm["uniqueness"])),
-        "ft_j": fj["ft"], "ft_m": fm["ft"], "ft_delta": fj["ft"] - fm["ft"],
-        "fp_j": get_pct(fj["ft"], fj["ob"]), "fp_m": get_pct(fm["ft"], fm["ob"]), "fp_dp": get_pp(get_pct(fj["ft"], fj["ob"]), get_pct(fm["ft"], fm["ob"]))
+        "ls_curr": fc["ls"], "ls_prev": fp["ls"], "ls_delta": fc["ls"] - fp["ls"],
+        "uniq_curr": fc["uniqueness"], "uniq_prev": fp["uniqueness"], "uniq_delta": fc["uniqueness"] - fp["uniqueness"],
+        "up_curr": get_pct(fc["uniqueness"], fc["ls"]), "up_prev": get_pct(fp["uniqueness"], fp["ls"]), "up_dp": get_pp(get_pct(fc["uniqueness"], fc["ls"]), get_pct(fp["uniqueness"], fp["ls"])),
+        "ob_curr": fc["ob"], "ob_prev": fp["ob"], "ob_delta": fc["ob"] - fp["ob"],
+        "op_curr": get_pct(fc["ob"], fc["uniqueness"]), "op_prev": get_pct(fp["ob"], fp["uniqueness"]), "op_dp": get_pp(get_pct(fc["ob"], fc["uniqueness"]), get_pct(fp["ob"], fp["uniqueness"])),
+        "ft_curr": fc["ft"], "ft_prev": fp["ft"], "ft_delta": fc["ft"] - fp["ft"],
+        "fp_curr": get_pct(fc["ft"], fc["ob"]), "fp_prev": get_pct(fp["ft"], fp["ob"]), "fp_dp": get_pp(get_pct(fc["ft"], fc["ob"]), get_pct(fp["ft"], fp["ob"]))
     }
 
     def roll_dim(df_w_c, df_w_p, dim_key):
@@ -492,8 +502,8 @@ def build_html_metric_payload(df_c, df_p):
         for d, r in m.iterrows():
             res.append({
                 "dim": str(d),
-                "jun": {"ls": int(r['ls_c']), "uniqueness": int(r['uniq_c']), "ob": int(r['ob_c']), "ft": int(r['ft_c'])},
-                "may": {"ls": int(r['ls_p']), "uniqueness": int(r['uniq_p']), "ob": int(r['ob_p']), "ft": int(r['ft_p'])}
+                "curr": {"ls": int(r['ls_c']), "uniqueness": int(r['uniq_c']), "ob": int(r['ob_c']), "ft": int(r['ft_c'])},
+                "prev": {"ls": int(r['ls_p']), "uniqueness": int(r['uniq_p']), "ob": int(r['ob_p']), "ft": int(r['ft_p'])}
             })
         return res
 
@@ -578,10 +588,10 @@ with tab_ui:
         .up {{ color: #4a9e2f; font-weight: 600; }} .dn {{ color: #e05252; font-weight: 600; }}
     </style>
     <div class="row">
-        <div class="card"><div class="val">{fo['ls_j']:,}</div><div class="lbl">Lead Share (LS)</div><div class="sub">Prior: {fo['ls_m']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['uniq_j']:,}</div><div class="lbl">Unique to Client</div><div class="sub">Prior: {fo['uniq_m']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ob_j']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_m']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
-        <div class="card"><div class="val">{fo['ft_j']:,}</div><div class="lbl">First Trips (FT)</div><div class="sub">Prior: {fo['ft_m']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ls_curr']:,}</div><div class="lbl">Lead Share (LS)</div><div class="sub">Prior: {fo['ls_prev']:,}</div><div><span class="{ 'up' if fo['ls_delta']>=0 else 'dn' }">{fo['ls_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['uniq_curr']:,}</div><div class="lbl">Unique to Client</div><div class="sub">Prior: {fo['uniq_prev']:,}</div><div><span class="{ 'up' if fo['uniq_delta']>=0 else 'dn' }">{fo['uniq_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ob_curr']:,}</div><div class="lbl">Onboarded (OB)</div><div class="sub">Prior: {fo['ob_prev']:,}</div><div><span class="{ 'up' if fo['ob_delta']>=0 else 'dn' }">{fo['ob_delta']:+,}</span></div></div>
+        <div class="card"><div class="val">{fo['ft_curr']:,}</div><div class="lbl">First Trips (FT)</div><div class="sub">Prior: {fo['ft_prev']:,}</div><div><span class="{ 'up' if fo['ft_delta']>=0 else 'dn' }">{fo['ft_delta']:+,}</span></div></div>
     </div>
     """, height=115)
 
@@ -594,10 +604,10 @@ with tab_ui:
     st.markdown("#### VL Cut — Configurable Volume Scan")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_vl = col1.slider("Select Display Window Scale (S5 Cut)", min_value=5, max_value=100, value=20, key="s5_slider")
-    sort_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s5_sort")
+    sort_vl = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s5_sort")
     order_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s5_order")
     if not df_vl_full.empty: 
-        df_vl_view = df_vl_full.sort_values(by=SORT_METRICS_MAP[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
+        df_vl_view = df_vl_full.sort_values(by=sort_metrics_map[sort_vl], ascending=(order_vl == "Bottom Performers (Degrowing)"))
         display_replicated_table(df_vl_view.head(top_n_vl), "s5")
     else: display_replicated_table(df_vl_full, "s5")
 
@@ -606,37 +616,49 @@ with tab_ui:
     selected_client_drill = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_drill_list, default=["All"], key="s9_drill_select")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s9 = col1.slider("Select Display Window Scale (S9 Drilldown)", min_value=5, max_value=100, value=20, key="s9_slider")
-    sort_s9 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s9_sort")
+    sort_s9 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s9_sort")
     order_s9 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s9_order")
     
     df_s9_view = df_client_vl_full.copy()
     if selected_client_drill and "All" not in selected_client_drill: df_s9_view = df_s9_view[df_s9_view['Dimension'].str.split(' · ').str[0].isin(selected_client_drill)]
-    if not df_s9_view.empty: df_s9_view = df_s9_view.sort_values(by=SORT_METRICS_MAP[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
+    if not df_s9_view.empty: df_s9_view = df_s9_view.sort_values(by=sort_metrics_map[sort_s9], ascending=(order_s9 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s9_view.head(top_n_drill_s9), "s9")
 
     st.markdown("#### Client × Region Drilldown")
     selected_client_region = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Region)", options=["All"] + active_drill_list, default=["All"], key="s8_drill_select")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s8 = col1.slider("Select Display Window Scale (Client × Region)", min_value=5, max_value=100, value=20, key="s8_slider")
-    sort_s8 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s8_sort")
+    sort_s8 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s8_sort")
     order_s8 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s8_order")
     
     df_s8_view = df_client_reg_full.copy()
     if selected_client_region and "All" not in selected_client_region: df_s8_view = df_s8_view[df_s8_view['Dimension'].str.split(' · ').str[0].isin(selected_client_region)]
-    if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
+    if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=sort_metrics_map[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
+
+    st.markdown("#### Client × Product Type Drilldown")
+    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
+    sort_s6 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s6_sort")
+    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
+    
+    df_s6_view = df_client_prod_full.copy()
+    if selected_client_product and "All" not in selected_client_product: df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
+    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=sort_metrics_map[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
+    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
 
     st.markdown("#### Region × VL Drilldown")
     active_region_list = sorted(list(df_curr['region'].dropna().unique()))
     selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_drill_s11 = col1.slider("Select Display Window Scale (Region × VL)", min_value=5, max_value=100, value=20, key="s11_slider")
-    sort_s11 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s11_sort")
+    sort_s11 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s11_sort")
     order_s11 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s11_order")
     
     df_s11_view = df_reg_vl_full.copy()
     if selected_region_vl and "All" not in selected_region_vl: df_s11_view = df_s11_view[df_s11_view['Dimension'].str.split(' · ').str[0].isin(selected_region_vl)]
-    if not df_s11_view.empty: df_s11_view = df_s11_view.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
+    if not df_s11_view.empty: df_s11_view = df_s11_view.sort_values(by=sort_metrics_map[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s11_view.head(top_n_drill_s11), "s11")
 
     st.markdown("#### Product Type Cut")
@@ -688,7 +710,7 @@ with tab_trends:
     
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_trend_vl = col1.slider("Select Display Window Scale (VL Trend)", min_value=5, max_value=100, value=20, key="trend_vl_slider")
-    sort_trend_vl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="trend_vl_sort")
+    sort_trend_vl = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="trend_vl_sort")
     order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
 
     df_vl_trend_view = df_trend_raw.copy()
@@ -710,7 +732,7 @@ with tab_trends:
     
     top_vls_list = None
     if not df_vl_ranking.empty:
-        df_vl_ranking = df_vl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_vl], ascending=(order_trend_vl == "Bottom Performers (Degrowing)"))
+        df_vl_ranking = df_vl_ranking.sort_values(by=sort_metrics_map[sort_trend_vl], ascending=(order_trend_vl == "Bottom Performers (Degrowing)"))
         top_vls_list = df_vl_ranking.head(top_n_trend_vl)["Dimension"].tolist()
         df_vl_trend_view = df_vl_trend_view[df_vl_trend_view['vl_name'].isin(top_vls_list)]
         
@@ -723,7 +745,7 @@ with tab_trends:
     
     col1, col2, col3 = st.columns([2, 1, 1])
     top_n_trend_cvl = col1.slider("Select Display Window Scale (Client × VL Trend)", min_value=5, max_value=100, value=20, key="trend_cvl_slider")
-    sort_trend_cvl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="trend_cvl_sort")
+    sort_trend_cvl = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="trend_cvl_sort")
     order_trend_cvl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_cvl_order")
 
     df_cvl_trend_view = df_trend_raw_cvl.copy()
@@ -747,7 +769,7 @@ with tab_trends:
     
     top_cvl_list = None
     if not df_cvl_ranking.empty:
-        df_cvl_ranking = df_cvl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_cvl], ascending=(order_trend_cvl == "Bottom Performers (Degrowing)"))
+        df_cvl_ranking = df_cvl_ranking.sort_values(by=sort_metrics_map[sort_trend_cvl], ascending=(order_trend_cvl == "Bottom Performers (Degrowing)"))
         top_cvl_list = df_cvl_ranking.head(top_n_trend_cvl)["Dimension"].tolist()
         df_cvl_trend_view = df_cvl_trend_view[df_cvl_trend_view['Client · VL'].isin(top_cvl_list)]
         
@@ -782,18 +804,18 @@ with tab_rca:
     client_funnels_compiled = []
     for c_obj in payload_rca["by_client"]:
         c_name = c_obj["dim"]
-        vj, vm = c_obj["jun"], c_obj["may"]
-        ft_delta = vj["ft"] - vm["ft"]
-        up_j = (vj["uniqueness"] / vj["ls"] * 100) if vj["ls"] > 0 else 0.0
-        up_m = (vm["uniqueness"] / vm["ls"] * 100) if vm["ls"] > 0 else 0.0
-        op_j = (vj["ob"] / vj["uniqueness"] * 100) if vj["uniqueness"] > 0 else 0.0
-        op_m = (vm["ob"] / vm["uniqueness"] * 100) if vm["uniqueness"] > 0 else 0.0
-        fp_j = (vj["ft"] / vj["ob"] * 100) if vj["ob"] > 0 else 0.0
-        fp_m = (vm["ft"] / vm["ob"] * 100) if vm["ob"] > 0 else 0.0
+        vc, vp = c_obj["curr"], c_obj["prev"]
+        ft_delta = vc["ft"] - vp["ft"]
+        up_curr = (vc["uniqueness"] / vc["ls"] * 100) if vc["ls"] > 0 else 0.0
+        up_prev = (vp["uniqueness"] / vp["ls"] * 100) if vp["ls"] > 0 else 0.0
+        op_curr = (vc["ob"] / vc["uniqueness"] * 100) if vc["uniqueness"] > 0 else 0.0
+        op_prev = (vp["ob"] / vp["uniqueness"] * 100) if vp["uniqueness"] > 0 else 0.0
+        fp_curr = (vc["ft"] / vc["ob"] * 100) if vc["ob"] > 0 else 0.0
+        fp_prev = (vp["ft"] / vp["ob"] * 100) if vp["ob"] > 0 else 0.0
         client_funnels_compiled.append({
-            "name": c_name, "ft_abs": ft_delta, "ls_j": vj["ls"], "ls_delta": vj["ls"] - vm["ls"], "ls_m": vm["ls"],
-            "up_j": up_j, "up_m": up_m, "up_dp": round(up_j - up_m, 2), "op_j": op_j, "op_m": op_m, "op_dp": round(op_j - op_m, 2), 
-            "fp_j": fp_j, "fp_m": fp_m, "fp_dp": round(fp_j - fp_m, 2)
+            "name": c_name, "ft_abs": ft_delta, "ls_curr": vc["ls"], "ls_delta": vc["ls"] - vp["ls"], "ls_prev": vp["ls"],
+            "up_curr": up_curr, "up_prev": up_prev, "up_dp": round(up_curr - up_prev, 2), "op_curr": op_curr, "op_prev": op_prev, "op_dp": round(op_curr - op_prev, 2), 
+            "fp_curr": fp_curr, "fp_prev": fp_prev, "fp_dp": round(fp_curr - fp_prev, 2)
         })
 
     laggard_clients = [a for a in client_funnels_compiled if a["ft_abs"] < 0]
@@ -808,7 +830,7 @@ with tab_rca:
     top_degrowing_vls = vl_rca_m.sort_values(by='delta', ascending=True).head(5)
 
     def generate_ceo_download_report():
-        ls_drop_pct = abs(round((fo_rca["ls_delta"] / fo_rca["ls_m"] * 100), 1)) if fo_rca["ls_m"] > 0 else 0
+        ls_drop_pct = abs(round((fo_rca["ls_delta"] / fo_rca["ls_prev"] * 100), 1)) if fo_rca["ls_prev"] > 0 else 0
         client_ls_drops = []
         for c in client_funnels_compiled:
             if c["ls_delta"] < 0: client_ls_drops.append((c["name"], abs(c["ls_delta"])))
@@ -816,8 +838,8 @@ with tab_rca:
         top_offenders = [f"{name} - {val/100000:.1f}L" for name, val in client_ls_drops[:3]]
         report_lines = [
             f"=== VAHAN EXECUTIVE FUNNEL PERFORMANCE MATRIX ===", f"Reporting Range: {curr_start} to {curr_end} vs Baseline: {prev_start} to {prev_end}", f"",
-            f"1. OVERALL FUNNEL SUMMARY", f"• {fo_rca['ls_j']/100000:.1f}L leads uploaded (Lead Share) this month down from {fo_rca['ls_m']/100000:.1f}L; {ls_drop_pct}% ▼",
-            f"• Largest drop comes from ({', '.join(top_offenders)})", f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_m']:.1f}% down to {fo_rca['up_j']:.1f}% (meaning fewer fresh leads new to client databases)."
+            f"1. OVERALL FUNNEL SUMMARY", f"• {fo_rca['ls_curr']/100000:.1f}L leads uploaded (Lead Share) this period down from {fo_rca['ls_prev']/100000:.1f}L; {ls_drop_pct}% ▼",
+            f"• Largest drop comes from ({', '.join(top_offenders)})", f"• Uniqueness has dropped by {abs(fo_rca['up_dp'])}pp from {fo_rca['up_prev']:.1f}% down to {fo_rca['up_curr']:.1f}% (meaning fewer fresh leads new to client databases)."
         ]
         return "\n".join(report_lines)
 
@@ -828,8 +850,8 @@ with tab_rca:
         with st.spinner("🧠 Querying Gemini AI block engine to compile corporate conversion summary narrative..."):
             gemini_api_key_clean = gemini_api_key.strip()
             minified_text_block = (
-                f"Funnel Overall: LS_Cur={fo_rca['ls_j']}, LS_Pr={fo_rca['ls_m']}, Uniq_Cur={fo_rca['uniq_j']}, Uniq_Pr={fo_rca['uniq_m']}, "
-                f"OB_Cur={fo_rca['ob_j']}, OB_Pr={fo_rca['ob_m']}, FT_Cur={fo_rca['ft_j']}, FT_Pr={fo_rca['ft_m']}. "
+                f"Funnel Overall: LS_Cur={fo_rca['ls_curr']}, LS_Pr={fo_rca['ls_prev']}, Uniq_Cur={fo_rca['uniq_curr']}, Uniq_Pr={fo_rca['uniq_prev']}, "
+                f"OB_Cur={fo_rca['ob_curr']}, OB_Pr={fo_rca['ob_prev']}, FT_Cur={fo_rca['ft_curr']}, FT_Pr={fo_rca['ft_prev']}. "
                 f"Grown VLs: {', '.join([f'{k}(+{int(v)})' for k, v in top_growing_vls['delta'].items() if v > 0])}. "
                 f"Dropped VLs: {', '.join([f'{k}({int(v)})' for k, v in top_degrowing_vls['delta'].items() if v < 0])}."
             )
@@ -869,11 +891,11 @@ with tab_rca:
     with growth_col1:
         st.markdown("#### Top 5 Growing VLs (Absolute Increase)")
         for vl_name, row in top_growing_vls.iterrows():
-            if row['delta'] > 0: st.markdown(f"- 🟢 **{vl_name}**: Added :green[+{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
+            if row['delta'] > 0: st.markdown(f"- 🟢 **{vl_name}**: Added :green[+{int(row['delta'])}] First Trips ({LBL_CURR}: {int(row['curr'])} vs {LBL_PREV}: {int(row['prev'])})")
     with growth_col2:
         st.markdown("#### Top 5 Degrowing VLs (Absolute Decrease)")
         for vl_name, row in top_degrowing_vls.iterrows():
-            if row['delta'] < 0: st.markdown(f"- 🔴 **{vl_name}**: Dropped :red[{int(row['delta'])}] First Trips (Jun: {int(row['curr'])} vs May: {int(row['prev'])})")
+            if row['delta'] < 0: st.markdown(f"- 🔴 **{vl_name}**: Dropped :red[{int(row['delta'])}] First Trips ({LBL_CURR}: {int(row['curr'])} vs {LBL_PREV}: {int(row['prev'])})")
 
     st.markdown("---")
     st.markdown("### B. Drill-down Summary")
@@ -891,9 +913,9 @@ with tab_rca:
             """, unsafe_allow_html=True)
             
             client_bullets = []
-            if client["fp_dp"] < 0: client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_m']:.1f}% to {client['fp_j']:.1f}%).</li>")
-            if client["op_dp"] < 0: client_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(client['op_dp'])}pp</span> (from {client['op_m']:.1f}% to {client['op_j']:.1f}%).</li>")
-            if client["up_dp"] < 0: client_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Uniqueness penetration dropped by <span class='dn'>{abs(client['up_dp'])}pp</span> (from {client['up_m']:.1f}% to {client['up_j']:.1f}%).</li>")
+            if client["fp_dp"] < 0: client_bullets.append(f"<li><strong>First Trip Drop Layer (OB ➔ FT):</strong> Conversion dropped by <span class='dn'>{abs(client['fp_dp'])}pp</span> (from {client['fp_prev']:.1f}% to {client['fp_curr']:.1f}%).</li>")
+            if client["op_dp"] < 0: client_bullets.append(f"<li><strong>Onboarding Drop Layer (Unique ➔ OB):</strong> Conversion dropped by <span class='dn'>{abs(client['op_dp'])}pp</span> (from {client['op_prev']:.1f}% to {client['op_curr']:.1f}%).</li>")
+            if client["up_dp"] < 0: client_bullets.append(f"<li><strong>Lead Penetration Loss Layer (LS ➔ Unique):</strong> Uniqueness penetration dropped by <span class='dn'>{abs(client['up_dp'])}pp</span> (from {client['up_prev']:.1f}% to {client['up_curr']:.1f}%).</li>")
             if client["ls_delta"] < 0: client_bullets.append(f"<li><strong>Volume Contraction Layer (Lead Share Ingress):</strong> Total raw leads shared decreased by <span class='dn'>{abs(client['ls_delta']):,} leads</span>.</li>")
             if client_bullets: st.markdown(f"<ul>{''.join(client_bullets)}</ul>", unsafe_allow_html=True)
             
