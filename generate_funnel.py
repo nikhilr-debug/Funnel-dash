@@ -98,6 +98,7 @@ elif view_mode == "WTD (Week-to-Date)":
     LBL_CURR = curr_start.strftime('%d %b')
     LBL_PREV = prev_start.strftime('%d %b')
 else:
+    # Custom Date Range Logic
     st.sidebar.markdown("**🗓️ Custom Date Selection**")
     default_curr_start = reference_date - timedelta(days=6)
     default_curr_end = reference_date
@@ -185,7 +186,6 @@ def get_colored_delta(v, suffix=""):
     if v is None or pd.isna(v): return "—"
     if v == 0: return f"0{suffix}"
     cl = "up" if v > 0 else "dn"
-    # CRITICAL FIX: Ensure negative numbers actually output a minus sign
     sign = "+" if v > 0 else "-"
     if suffix in ["pp", "%"]: return f'<span class="{cl}">{sign}{abs(v):.2f}{suffix}</span>'
     val = abs(v)
@@ -330,9 +330,58 @@ def display_replicated_table(df, key_prefix):
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
+        
+        /* Interactive CSV Download Button Styles */
+        .download-btn {{
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #ffffff;
+            border: 1px solid #eceae4;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 14px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.2s ease-in-out;
+            z-index: 100;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        .table-container:hover .download-btn {{
+            opacity: 1;
+        }}
+        .download-btn:hover {{
+            background: #f7f6f3;
+            transform: scale(1.05);
+        }}
     </style>
-    <div class="table-container">{formatted_html}</div>
+    <div class="table-container">
+        <button class='download-btn' onclick='downloadCSV("table_{key_prefix}", "{key_prefix}_export.csv")' title='Download Current Table View'>📥 CSV</button>
+        {formatted_html}
+    </div>
     <script>
+    function downloadCSV(tableId, filename) {{
+        let table = document.getElementById(tableId);
+        let rows = table.querySelectorAll('tr');
+        let csv = [];
+        for (let i = 0; i < rows.length; i++) {{
+            let row = [], cols = rows[i].querySelectorAll('td, th');
+            for (let j = 0; j < cols.length; j++) {{
+                let data = cols[j].innerText.replace(/ ↕/g, '').replace(/"/g, '""');
+                row.push('"' + data + '"');
+            }}
+            csv.push(row.join(','));
+        }}
+        let csvFile = new Blob([csv.join('\\n')], {{type: 'text/csv'}});
+        let downloadLink = document.createElement('a');
+        downloadLink.download = filename;
+        downloadLink.href = window.URL.createObjectURL(csvFile);
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    }}
+
     document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
         const table = th.closest('table');
         const tbody = table.querySelector('tbody');
@@ -340,7 +389,6 @@ def display_replicated_table(df, key_prefix):
         const index = Array.from(th.parentNode.children).indexOf(th);
         const asc = th.dataset.asc = !th.dataset.asc;
         
-        // CRITICAL FIX: Math-safe string parsing block for JS Headers
         const parseValue = (valStr) => {{
             let cleanStr = valStr.replace(/[%|,|pp|+|↕]/g, '').trim();
             let multiplier = 1;
@@ -491,9 +539,58 @@ def display_trend_html(grp, group_cols, key_prefix):
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
         .pr {{ background: rgba(224,82,82,0.15); color: #e05252; }}
+        
+        /* Interactive CSV Download Button Styles */
+        .download-btn {{
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #ffffff;
+            border: 1px solid #eceae4;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 14px;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.2s ease-in-out;
+            z-index: 100;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        .table-container:hover .download-btn {{
+            opacity: 1;
+        }}
+        .download-btn:hover {{
+            background: #f7f6f3;
+            transform: scale(1.05);
+        }}
     </style>
-    <div class="table-container">{html}</div>
+    <div class="table-container">
+        <button class='download-btn' onclick='downloadCSV("trend_{key_prefix}", "{key_prefix}_trend_export.csv")' title='Download Current Table View'>📥 CSV</button>
+        {html}
+    </div>
     <script>
+    function downloadCSV(tableId, filename) {{
+        let table = document.getElementById(tableId);
+        let rows = table.querySelectorAll('tr');
+        let csv = [];
+        for (let i = 0; i < rows.length; i++) {{
+            let row = [], cols = rows[i].querySelectorAll('td, th');
+            for (let j = 0; j < cols.length; j++) {{
+                let data = cols[j].innerText.replace(/ ↕/g, '').replace(/"/g, '""');
+                row.push('"' + data + '"');
+            }}
+            csv.push(row.join(','));
+        }}
+        let csvFile = new Blob([csv.join('\\n')], {{type: 'text/csv'}});
+        let downloadLink = document.createElement('a');
+        downloadLink.download = filename;
+        downloadLink.href = window.URL.createObjectURL(csvFile);
+        downloadLink.style.display = 'none';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    }}
+
     document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {{
         const table = th.closest('table');
         const tbody = table.querySelector('tbody');
@@ -501,7 +598,6 @@ def display_trend_html(grp, group_cols, key_prefix):
         const index = Array.from(th.parentNode.children).indexOf(th);
         const asc = th.dataset.asc = !th.dataset.asc;
         
-        // CRITICAL FIX: Math-safe string parsing block for JS Headers
         const parseValue = (valStr) => {{
             let cleanStr = valStr.replace(/[%|,|pp|+|↕]/g, '').trim();
             let multiplier = 1;
