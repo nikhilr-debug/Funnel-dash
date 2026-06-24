@@ -23,6 +23,7 @@ st.markdown("""
     .pa { background-color: rgba(212,137,26,0.15); color: #d4891a; }
     .pr { background-color: rgba(224,82,82,0.15); color: #e05252; }
     .pb { background-color: rgba(47,125,212,0.15); color: #2f7dd4; }
+    .cntrb { color: #666666 !important; font-weight: 700; background-color: #f0f0f0; padding: 2px 5px; border-radius: 4px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -118,6 +119,7 @@ else:
 # --- Dynamic Sort Mapping Engine ---
 sort_metrics_map = {
     "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
+    "LS Δ Cntrb%": "LS Δ Cntrb%", "Uniq Δ Cntrb%": "Uniq Δ Cntrb%", "OB Δ Cntrb%": "OB Δ Cntrb%", "FT Δ Cntrb%": "FT Δ Cntrb%",
     "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
     "OB/LS% Δpp": "OB/LS Δpp", "FT/LS% Δpp": "FT/LS Δpp",
     "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", 
@@ -170,7 +172,7 @@ df_prev = apply_dimensional_filters(df_raw[(df_raw['day'] >= prev_start) & (df_r
 
 st.info(f"📅 **Active Constraints Matrix Window** | **Current Scope:** `{curr_start}` to `{curr_end}` vs **Matching Historical Baseline:** `{prev_start}` to `{prev_end}`")
 
-# --- ZIP Downloader Helper Engine (Hardened w/ 'w' mode) ---
+# --- ZIP Downloader Helper Engine ---
 def create_zip_download(file_dict):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -204,8 +206,26 @@ def get_pill_pct(p, metric_type):
 
 def transform_to_replicated_dataframe(rows_list):
     processed = []
+    
+    # Calculate Total Variances for Contribution (Mix %)
+    tot_ls_d = sum((r["curr"]["ls"] - r["prev"]["ls"]) for r in rows_list)
+    tot_uq_d = sum((r["curr"]["uniqueness"] - r["prev"]["uniqueness"]) for r in rows_list)
+    tot_ob_d = sum((r["curr"]["ob"] - r["prev"]["ob"]) for r in rows_list)
+    tot_ft_d = sum((r["curr"]["ft"] - r["prev"]["ft"]) for r in rows_list)
+    
     for r in rows_list:
         vc, vp = r["curr"], r["prev"]
+        
+        ls_d = vc["ls"] - vp["ls"]
+        uq_d = vc["uniqueness"] - vp["uniqueness"]
+        ob_d = vc["ob"] - vp["ob"]
+        ft_d = vc["ft"] - vp["ft"]
+        
+        ls_cntrb = round((ls_d / tot_ls_d * 100), 1) if tot_ls_d != 0 else 0.0
+        uq_cntrb = round((uq_d / tot_uq_d * 100), 1) if tot_uq_d != 0 else 0.0
+        ob_cntrb = round((ob_d / tot_ob_d * 100), 1) if tot_ob_d != 0 else 0.0
+        ft_cntrb = round((ft_d / tot_ft_d * 100), 1) if tot_ft_d != 0 else 0.0
+        
         up_curr = round((vc["uniqueness"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0
         up_prev = round((vp["uniqueness"] / vp["ls"] * 100), 2) if vp["ls"] > 0 else 0.0
         op_curr = round((vc["ob"] / vc["uniqueness"] * 100), 2) if vc["uniqueness"] > 0 else (round((vc["ob"] / vc["ls"] * 100), 2) if vc["ls"] > 0 else 0.0)
@@ -221,12 +241,12 @@ def transform_to_replicated_dataframe(rows_list):
 
         processed.append({
             "Dimension": r["dim"],
-            f"LS (Lead Share) {LBL_CURR}": vc["ls"], f"LS (Lead Share) {LBL_PREV}": vp["ls"], "LS Δ": vc["ls"] - vp["ls"], "LS Δ%": round(((vc["ls"] - vp["ls"]) / vp["ls"] * 100), 1) if vp["ls"] > 0 else None,
-            f"Unique {LBL_CURR}": vc["uniqueness"], f"Unique {LBL_PREV}": vp["uniqueness"], "Unique Δ": vc["uniqueness"] - vp["uniqueness"],
+            f"LS (Lead Share) {LBL_CURR}": vc["ls"], f"LS (Lead Share) {LBL_PREV}": vp["ls"], "LS Δ": ls_d, "LS Δ%": round((ls_d / vp["ls"] * 100), 1) if vp["ls"] > 0 else None, "LS Δ Cntrb%": ls_cntrb,
+            f"Unique {LBL_CURR}": vc["uniqueness"], f"Unique {LBL_PREV}": vp["uniqueness"], "Unique Δ": uq_d, "Uniq Δ Cntrb%": uq_cntrb,
             "Uniq%": up_curr, "Uniq Δpp": round(up_curr - up_prev, 2),
-            f"OB (Onboarded) {LBL_CURR}": vc["ob"], f"OB (Onboarded) {LBL_PREV}": vp["ob"], "OB Δ": vc["ob"] - vp["ob"],
+            f"OB (Onboarded) {LBL_CURR}": vc["ob"], f"OB (Onboarded) {LBL_PREV}": vp["ob"], "OB Δ": ob_d, "OB Δ Cntrb%": ob_cntrb,
             "OB%": op_curr, "OB Δpp": round(op_curr - op_prev, 2),
-            f"FT (First Trip) {LBL_CURR}": vc["ft"], f"FT (First Trip) {LBL_PREV}": vp["ft"], "FT Δ": vc["ft"] - vp["ft"], "FT Δ%": round(((vc["ft"] - vp["ft"]) / vp["ft"] * 100), 1) if vp["ft"] > 0 else None,
+            f"FT (First Trip) {LBL_CURR}": vc["ft"], f"FT (First Trip) {LBL_PREV}": vp["ft"], "FT Δ": ft_d, "FT Δ%": round((ft_d / vp["ft"] * 100), 1) if vp["ft"] > 0 else None, "FT Δ Cntrb%": ft_cntrb,
             "FT/OB%": fp_curr, "FT/OB Δpp": round(fp_curr - fp_prev, 2),
             "OB/LS%": ob_ls_curr, "OB/LS Δpp": round(ob_ls_curr - ob_ls_prev, 2),
             "FT/LS%": ft_ls_curr, "FT/LS Δpp": round(ft_ls_curr - ft_ls_prev, 2)
@@ -238,9 +258,12 @@ def display_replicated_table(df, key_prefix):
         st.write("No metrics matching active filter states.")
         return
     ordered_cols = [
-        "Dimension", f"LS (Lead Share) {LBL_CURR}", f"LS (Lead Share) {LBL_PREV}", "LS Δ", "LS Δ%", f"Unique {LBL_CURR}", f"Unique {LBL_PREV}", "Unique Δ",
-        "Uniq%", "Uniq Δpp", f"OB (Onboarded) {LBL_CURR}", f"OB (Onboarded) {LBL_PREV}", "OB Δ", "OB%", "OB Δpp", f"FT (First Trip) {LBL_CURR}", f"FT (First Trip) {LBL_PREV}",
-        "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp", "OB/LS%", "OB/LS Δpp", "FT/LS%", "FT/LS Δpp"
+        "Dimension", 
+        f"LS (Lead Share) {LBL_CURR}", f"LS (Lead Share) {LBL_PREV}", "LS Δ", "LS Δ%", "LS Δ Cntrb%",
+        f"Unique {LBL_CURR}", f"Unique {LBL_PREV}", "Unique Δ", "Uniq Δ Cntrb%", "Uniq%", "Uniq Δpp", 
+        f"OB (Onboarded) {LBL_CURR}", f"OB (Onboarded) {LBL_PREV}", "OB Δ", "OB Δ Cntrb%", "OB%", "OB Δpp", 
+        f"FT (First Trip) {LBL_CURR}", f"FT (First Trip) {LBL_PREV}", "FT Δ", "FT Δ%", "FT Δ Cntrb%", 
+        "FT/OB%", "FT/OB Δpp", "OB/LS%", "OB/LS Δpp", "FT/LS%", "FT/LS Δpp"
     ]
     df = df[ordered_cols].copy()
     formatted_html = f"<table id='table_{key_prefix}'><thead><tr>" + "".join([f"<th>{col} ↕</th>" for col in ordered_cols]) + "</tr></thead><tbody>"
@@ -255,20 +278,28 @@ def display_replicated_table(df, key_prefix):
         formatted_html += f"<td class='fl'>{r[f'LS (Lead Share) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
+        formatted_html += f"<td><span class='cntrb'>{r['LS Δ Cntrb%']:.1f}%</span></td>"
+        
         formatted_html += f"<td><span class='{uniq_class}'>{r[f'Unique {LBL_CURR}']:,}</span></td>"
         formatted_html += f"<td><span class='fl'>{r[f'Unique {LBL_PREV}']:,}</span></td>"
         formatted_html += f"<td>{get_colored_delta(r['Unique Δ'])}</td>"
+        formatted_html += f"<td><span class='cntrb'>{r['Uniq Δ Cntrb%']:.1f}%</span></td>"
         formatted_html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['Uniq Δpp'], 'pp')}</td>"
+        
         formatted_html += f"<td><span class='{ob_class}'>{r[f'OB (Onboarded) {LBL_CURR}']:,}</span></td>"
         formatted_html += f"<td class='fl'>{r[f'OB (Onboarded) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δ'])}</td>"
+        formatted_html += f"<td><span class='cntrb'>{r['OB Δ Cntrb%']:.1f}%</span></td>"
         formatted_html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['OB Δpp'], 'pp')}</td>"
+        
         formatted_html += f"<td class='bold'><span class='{ft_class}'>{r[f'FT (First Trip) {LBL_CURR}']:,}</span></td>"
         formatted_html += f"<td class='fl'>{r[f'FT (First Trip) {LBL_PREV}']:,}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ'])}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
+        formatted_html += f"<td><span class='cntrb'>{r['FT Δ Cntrb%']:.1f}%</span></td>"
+        
         formatted_html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT/OB Δpp'], 'pp')}</td>"
         formatted_html += f"<td>{get_pill_pct(r['OB/LS%'], 'ls_ob')}</td>"
@@ -294,6 +325,7 @@ def display_replicated_table(df, key_prefix):
         .fl {{ color: #888888 !important; }}
         .up {{ color: #4a9e2f !important; font-weight: 600; }}
         .dn {{ color: #e05252 !important; font-weight: 600; }}
+        .cntrb {{ color: #666666 !important; font-weight: 700; background-color: #f0f0f0; padding: 2px 5px; border-radius: 4px;}}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -329,7 +361,6 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
     
-    # New Metric Columns
     grp['OB/LS%'] = grp.apply(lambda r: round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
     grp['FT/LS%'] = grp.apply(lambda r: round(r['ft']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
 
@@ -349,9 +380,19 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
         
-        # New Metric Deltas
         grp['OB/LS% Δpp'] = grp.groupby(primary_dim)['OB/LS%'].diff()
         grp['FT/LS% Δpp'] = grp.groupby(primary_dim)['FT/LS%'].diff()
+
+        # Weekly Variance Contribution
+        tot_ls_d_wk = grp.groupby('week')['LS Δ'].transform('sum')
+        tot_uq_d_wk = grp.groupby('week')['Uniq Δ'].transform('sum')
+        tot_ob_d_wk = grp.groupby('week')['OB Δ'].transform('sum')
+        tot_ft_d_wk = grp.groupby('week')['FT Δ'].transform('sum')
+        
+        grp['LS Δ Cntrb%'] = np.where(tot_ls_d_wk != 0, (grp['LS Δ'] / tot_ls_d_wk * 100).round(1), 0.0)
+        grp['Uniq Δ Cntrb%'] = np.where(tot_uq_d_wk != 0, (grp['Uniq Δ'] / tot_uq_d_wk * 100).round(1), 0.0)
+        grp['OB Δ Cntrb%'] = np.where(tot_ob_d_wk != 0, (grp['OB Δ'] / tot_ob_d_wk * 100).round(1), 0.0)
+        grp['FT Δ Cntrb%'] = np.where(tot_ft_d_wk != 0, (grp['FT Δ'] / tot_ft_d_wk * 100).round(1), 0.0)
 
         if dimension_order:
             grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
@@ -372,9 +413,13 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ%'] = grp['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp['FT/OB%'].diff()
         
-        # New Metric Deltas
         grp['OB/LS% Δpp'] = grp['OB/LS%'].diff()
         grp['FT/LS% Δpp'] = grp['FT/LS%'].diff()
+        
+        grp['LS Δ Cntrb%'] = 100.0
+        grp['Uniq Δ Cntrb%'] = 100.0
+        grp['OB Δ Cntrb%'] = 100.0
+        grp['FT Δ Cntrb%'] = 100.0
         
         grp = grp.sort_values(by=['week'], ascending=[False])
 
@@ -387,8 +432,8 @@ def display_trend_html(grp, group_cols, key_prefix):
         return
         
     headers = [col.replace('_', ' ').title() for col in group_cols] + [
-        "LS", "LS Δ", "LS Δ%", "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
-        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp",
+        "LS", "LS Δ", "LS Δ%", "LS Δ Cntrb%", "Unique", "Uniq Δ", "Uniq Δ%", "Uniq Δ Cntrb%", "Uniq%", "Uniq% Δpp", 
+        "OB", "OB Δ", "OB Δ%", "OB Δ Cntrb%", "OB%", "OB% Δpp", "FT", "FT Δ", "FT Δ%", "FT Δ Cntrb%", "FT/OB%", "FT/OB% Δpp",
         "OB/LS%", "OB/LS% Δpp", "FT/LS%", "FT/LS% Δpp"
     ]
     
@@ -401,12 +446,12 @@ def display_trend_html(grp, group_cols, key_prefix):
         for idx, col in enumerate(group_cols):
             css_class = "bold sticky-col" if idx == 0 else "bold"
             html += f"<td class='{css_class}'>{r[col]}</td>"
-        html += f"<td>{int(r['ls']) if r['ls'] is not None else 0:,}</td><td>{get_colored_delta(r['LS Δ'])}</td><td>{get_colored_delta(r['LS Δ%'], '%')}</td>"
-        html += f"<td>{int(r['uniq']) if r['uniq'] is not None else 0:,}</td><td>{get_colored_delta(r['Uniq Δ'])}</td><td>{get_colored_delta(r['Uniq Δ%'], '%')}</td>"
+        html += f"<td>{int(r['ls']) if r['ls'] is not None else 0:,}</td><td>{get_colored_delta(r['LS Δ'])}</td><td>{get_colored_delta(r['LS Δ%'], '%')}</td><td><span class='cntrb'>{r['LS Δ Cntrb%'] if pd.notnull(r['LS Δ Cntrb%']) else 0.0:.1f}%</span></td>"
+        html += f"<td>{int(r['uniq']) if r['uniq'] is not None else 0:,}</td><td>{get_colored_delta(r['Uniq Δ'])}</td><td>{get_colored_delta(r['Uniq Δ%'], '%')}</td><td><span class='cntrb'>{r['Uniq Δ Cntrb%'] if pd.notnull(r['Uniq Δ Cntrb%']) else 0.0:.1f}%</span></td>"
         html += f"<td>{get_pill_pct(r['Uniq%'], 'uniq')}</td><td>{get_colored_delta(r['Uniq% Δpp'], 'pp')}</td>"
-        html += f"<td>{int(r['ob']) if r['ob'] is not None else 0:,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
+        html += f"<td>{int(r['ob']) if r['ob'] is not None else 0:,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td><td><span class='cntrb'>{r['OB Δ Cntrb%'] if pd.notnull(r['OB Δ Cntrb%']) else 0.0:.1f}%</span></td>"
         html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td><td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
-        html += f"<td class='bold'>{int(r['ft']) if r['ft'] is not None else 0:,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
+        html += f"<td class='bold'>{int(r['ft']) if r['ft'] is not None else 0:,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td><td><span class='cntrb'>{r['FT Δ Cntrb%'] if pd.notnull(r['FT Δ Cntrb%']) else 0.0:.1f}%</span></td>"
         html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td><td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td>"
         html += f"<td>{get_pill_pct(r['OB/LS%'], 'ls_ob')}</td><td>{get_colored_delta(r['OB/LS% Δpp'], 'pp')}</td>"
         html += f"<td>{get_pill_pct(r['FT/LS%'], 'ls_ft')}</td><td>{get_colored_delta(r['FT/LS% Δpp'], 'pp')}</td></tr>"
@@ -428,6 +473,7 @@ def display_trend_html(grp, group_cols, key_prefix):
         .fl {{ color: #888888 !important; }}
         .up {{ color: #4a9e2f !important; font-weight: 600; }}
         .dn {{ color: #e05252 !important; font-weight: 600; }}
+        .cntrb {{ color: #666666 !important; font-weight: 700; background-color: #f0f0f0; padding: 2px 5px; border-radius: 4px;}}
         .pill {{ display: inline-block; padding: 2px 6px; border-radius: 12px; font-size: 10px; font-weight: 600; }}
         .pg {{ background: rgba(74,158,47,0.15); color: #4a9e2f; }}
         .pa {{ background: rgba(212,137,26,0.15); color: #d4891a; }}
@@ -635,18 +681,6 @@ with tab_ui:
     if selected_client_region and "All" not in selected_client_region: df_s8_view = df_s8_view[df_s8_view['Dimension'].str.split(' · ').str[0].isin(selected_client_region)]
     if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=sort_metrics_map[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
-
-    st.markdown("#### Client × Product Type Drilldown")
-    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
-    sort_s6 = col2.selectbox("Sort Priority By:", list(sort_metrics_map.keys()), index=0, key="s6_sort")
-    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
-    
-    df_s6_view = df_client_prod_full.copy()
-    if selected_client_product and "All" not in selected_client_product: df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
-    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=sort_metrics_map[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
 
     st.markdown("#### Region × VL Drilldown")
     active_region_list = sorted(list(df_curr['region'].dropna().unique()))
