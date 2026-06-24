@@ -73,7 +73,7 @@ if st.sidebar.button("🔄 Force Live Data Refresh", help="Clear the 30-minute c
 anchor_week = st.sidebar.selectbox("📅 Master Week Slicer", options=allWeeks, help="Select a week to act as 'Present Day'. Both MTD and WTD scopes will calculate accurately based on this anchor.")
 operational_today = df_raw[df_raw['week'] == anchor_week]['day'].max()
 
-view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)"])
+view_mode = st.sidebar.radio("Time Aggregation Scope", ["MTD (Month-to-Date)", "WTD (Week-to-Date)", "Custom Date Range"])
 
 reference_date = operational_today
 
@@ -87,11 +87,27 @@ if view_mode == "MTD (Month-to-Date)":
         prev_end = date(prev_year, prev_month, reference_date.day)
     except ValueError:
         prev_end = (date(prev_year, prev_month + 1, 1) - timedelta(days=1))
-else:
+elif view_mode == "WTD (Week-to-Date)":
     curr_start = reference_date - timedelta(days=reference_date.weekday())
     curr_end = reference_date
     prev_start = curr_start - timedelta(days=7)
     prev_end = curr_end - timedelta(days=7)
+else:
+    # Custom Date Range Logic
+    st.sidebar.markdown("**🗓️ Custom Date Selection**")
+    default_curr_start = reference_date - timedelta(days=6)
+    default_curr_end = reference_date
+    default_prev_start = default_curr_start - timedelta(days=7)
+    default_prev_end = default_curr_end - timedelta(days=7)
+    
+    curr_dates = st.sidebar.date_input("Current Period (Start - End)", value=(default_curr_start, default_curr_end))
+    prev_dates = st.sidebar.date_input("Baseline Period (Start - End)", value=(default_prev_start, default_prev_end))
+    
+    curr_start = curr_dates[0] if isinstance(curr_dates, tuple) and len(curr_dates) > 0 else curr_dates
+    curr_end = curr_dates[1] if isinstance(curr_dates, tuple) and len(curr_dates) > 1 else curr_start
+    
+    prev_start = prev_dates[0] if isinstance(prev_dates, tuple) and len(prev_dates) > 0 else prev_dates
+    prev_end = prev_dates[1] if isinstance(prev_dates, tuple) and len(prev_dates) > 1 else prev_start
 
 # --- Sidebar Multi-Select Slicers Suite ---
 st.sidebar.markdown("---")
@@ -160,6 +176,8 @@ def get_pill_pct(p, metric_type):
     v = round(p)
     if metric_type == 'uniq': cl = 'pg' if v >= 40 else ('pa' if v >= 20 else 'pr')
     elif metric_type == 'ob': cl = 'pg' if v >= 5 else ('pa' if v >= 1 else 'pr')
+    elif metric_type == 'ls_ob': cl = 'pg' if v >= 10 else ('pa' if v >= 3 else 'pr')
+    elif metric_type == 'ls_ft': cl = 'pg' if v >= 5 else ('pa' if v >= 1 else 'pr')
     else: cl = 'pg' if v >= 60 else ('pa' if v >= 40 else 'pr')
     return f'<span class="pill {cl}">{v}%</span>'
 
@@ -174,6 +192,13 @@ def transform_to_replicated_dataframe(rows_list):
         op_m = round((vm["ob"] / const_base_p * 100), 2) if const_base_p > 0 else 0.0
         fp_j = round((vj["ft"] / vj["ob"] * 100), 2) if vj["ob"] > 0 else 0.0
         fp_m = round((vm["ft"] / vm["ob"] * 100), 2) if vm["ob"] > 0 else 0.0
+        
+        # New Macro Conversion Rates
+        ob_ls_j = round((vj["ob"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
+        ob_ls_m = round((vm["ob"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
+        ft_ls_j = round((vj["ft"] / vj["ls"] * 100), 2) if vj["ls"] > 0 else 0.0
+        ft_ls_m = round((vm["ft"] / vm["ls"] * 100), 2) if vm["ls"] > 0 else 0.0
+
         processed.append({
             "Dimension": r["dim"],
             "LS (Lead Share) Jun": vj["ls"], "LS (Lead Share) May": vm["ls"], "LS Δ": vj["ls"] - vm["ls"], "LS Δ%": round(((vj["ls"] - vm["ls"]) / vm["ls"] * 100), 1) if vm["ls"] > 0 else None,
@@ -182,7 +207,9 @@ def transform_to_replicated_dataframe(rows_list):
             "OB (Onboarded) Jun": vj["ob"], "OB (Onboarded) May": vm["ob"], "OB Δ": vj["ob"] - vm["ob"],
             "OB%": op_j, "OB Δpp": round(op_j - op_m, 2),
             "FT (First Trip) Jun": vj["ft"], "FT (First Trip) May": vm["ft"], "FT Δ": vj["ft"] - vm["ft"], "FT Δ%": round(((vj["ft"] - vm["ft"]) / vm["ft"] * 100), 1) if vm["ft"] > 0 else None,
-            "FT/OB%": fp_j, "FT/OB Δpp": round(fp_j - fp_m, 2)
+            "FT/OB%": fp_j, "FT/OB Δpp": round(fp_j - fp_m, 2),
+            "OB/LS%": ob_ls_j, "OB/LS Δpp": round(ob_ls_j - ob_ls_m, 2),
+            "FT/LS%": ft_ls_j, "FT/LS Δpp": round(ft_ls_j - ft_ls_m, 2)
         })
     return pd.DataFrame(processed)
 
@@ -193,7 +220,7 @@ def display_replicated_table(df, key_prefix):
     ordered_cols = [
         "Dimension", "LS (Lead Share) Jun", "LS (Lead Share) May", "LS Δ", "LS Δ%", "Unique Jun", "Unique May", "Unique Δ",
         "Uniq%", "Uniq Δpp", "OB (Onboarded) Jun", "OB (Onboarded) May", "OB Δ", "OB%", "OB Δpp", "FT (First Trip) Jun", "FT (First Trip) May",
-        "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp"
+        "FT Δ", "FT Δ%", "FT/OB%", "FT/OB Δpp", "OB/LS%", "OB/LS Δpp", "FT/LS%", "FT/LS Δpp"
     ]
     df = df[ordered_cols].copy()
     formatted_html = f"<table id='table_{key_prefix}'><thead><tr>" + "".join([f"<th>{col} ↕</th>" for col in ordered_cols]) + "</tr></thead><tbody>"
@@ -224,6 +251,10 @@ def display_replicated_table(df, key_prefix):
         formatted_html += f"<td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
         formatted_html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td>"
         formatted_html += f"<td>{get_colored_delta(r['FT/OB Δpp'], 'pp')}</td>"
+        formatted_html += f"<td>{get_pill_pct(r['OB/LS%'], 'ls_ob')}</td>"
+        formatted_html += f"<td>{get_colored_delta(r['OB/LS Δpp'], 'pp')}</td>"
+        formatted_html += f"<td>{get_pill_pct(r['FT/LS%'], 'ls_ft')}</td>"
+        formatted_html += f"<td>{get_colored_delta(r['FT/LS Δpp'], 'pp')}</td>"
         formatted_html += "</tr>"
     formatted_html += "</tbody></table>"
     
@@ -278,6 +309,10 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
     grp['OB%'] = grp.apply(lambda r: round(r['ob']/r['uniq']*100, 1) if r['uniq']>0 else (round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0), axis=1)
     grp['FT/OB%'] = grp.apply(lambda r: round(r['ft']/r['ob']*100, 1) if r['ob']>0 else 0.0, axis=1)
     
+    # New Metric Columns
+    grp['OB/LS%'] = grp.apply(lambda r: round(r['ob']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
+    grp['FT/LS%'] = grp.apply(lambda r: round(r['ft']/r['ls']*100, 1) if r['ls']>0 else 0.0, axis=1)
+
     primary_dim = group_cols[0] if len(group_cols) > 1 else None
     
     if primary_dim:
@@ -293,6 +328,11 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
+        
+        # New Metric Deltas
+        grp['OB/LS% Δpp'] = grp.groupby(primary_dim)['OB/LS%'].diff()
+        grp['FT/LS% Δpp'] = grp.groupby(primary_dim)['FT/LS%'].diff()
+
         if dimension_order:
             # Mathematical explicit rank mapping to fully bypass Pandas alphabetical defaults
             grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
@@ -312,6 +352,11 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ'] = grp['ft'].diff()
         grp['FT Δ%'] = grp['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp['FT/OB%'].diff()
+        
+        # New Metric Deltas
+        grp['OB/LS% Δpp'] = grp['OB/LS%'].diff()
+        grp['FT/LS% Δpp'] = grp['FT/LS%'].diff()
+        
         grp = grp.sort_values(by=['week'], ascending=[False])
 
     grp = grp.replace([np.inf, -np.inf], np.nan)
@@ -324,7 +369,8 @@ def display_trend_html(grp, group_cols, key_prefix):
         
     headers = [col.replace('_', ' ').title() for col in group_cols] + [
         "LS", "LS Δ", "LS Δ%", "Unique", "Uniq Δ", "Uniq Δ%", "Uniq%", "Uniq% Δpp", 
-        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp"
+        "OB", "OB Δ", "OB Δ%", "OB%", "OB% Δpp", "FT", "FT Δ", "FT Δ%", "FT/OB%", "FT/OB% Δpp",
+        "OB/LS%", "OB/LS% Δpp", "FT/LS%", "FT/LS% Δpp"
     ]
     
     html = f"<table id='trend_{key_prefix}'><thead><tr>"
@@ -342,7 +388,9 @@ def display_trend_html(grp, group_cols, key_prefix):
         html += f"<td>{int(r['ob']) if r['ob'] is not None else 0:,}</td><td>{get_colored_delta(r['OB Δ'])}</td><td>{get_colored_delta(r['OB Δ%'], '%')}</td>"
         html += f"<td>{get_pill_pct(r['OB%'], 'ob')}</td><td>{get_colored_delta(r['OB% Δpp'], 'pp')}</td>"
         html += f"<td class='bold'>{int(r['ft']) if r['ft'] is not None else 0:,}</td><td>{get_colored_delta(r['FT Δ'])}</td><td>{get_colored_delta(r['FT Δ%'], '%')}</td>"
-        html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td><td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td></tr>"
+        html += f"<td>{get_pill_pct(r['FT/OB%'], 'ft')}</td><td>{get_colored_delta(r['FT/OB% Δpp'], 'pp')}</td>"
+        html += f"<td>{get_pill_pct(r['OB/LS%'], 'ls_ob')}</td><td>{get_colored_delta(r['OB/LS% Δpp'], 'pp')}</td>"
+        html += f"<td>{get_pill_pct(r['FT/LS%'], 'ls_ft')}</td><td>{get_colored_delta(r['FT/LS% Δpp'], 'pp')}</td></tr>"
     html += "</tbody></table>"
     
     st.iframe(f"""
@@ -412,8 +460,10 @@ def call_gemini_with_retries(api_key, payload, max_retries=4):
 SORT_METRICS_MAP = {
     "FT Δ": "FT Δ", "LS Δ": "LS Δ", "Uniq Δ": "Unique Δ", "OB Δ": "OB Δ",
     "Uniq% Δpp": "Uniq Δpp", "OB% Δpp": "OB Δpp", "FT/OB% Δpp": "FT/OB Δpp",
+    "OB/LS% Δpp": "OB/LS Δpp", "FT/LS% Δpp": "FT/LS Δpp",
     "LS Δ%": "LS Δ%", "FT Δ%": "FT Δ%", "FT Jun": "FT (First Trip) Jun",
-    "LS Jun": "LS (Lead Share) Jun", "Uniq% Jun": "Uniq%", "OB% Jun": "OB%", "FT/OB% Jun": "FT/OB%"
+    "LS Jun": "LS (Lead Share) Jun", "Uniq% Jun": "Uniq%", "OB% Jun": "OB%", "FT/OB% Jun": "FT/OB%",
+    "OB/LS% Jun": "OB/LS%", "FT/LS% Jun": "FT/LS%"
 }
 
 def build_html_metric_payload(df_c, df_p):
@@ -538,9 +588,6 @@ with tab_ui:
     st.markdown("#### Client Cut")
     display_replicated_table(df_client_full, "s1")
 
-    st.markdown("#### Product Type Cut")
-    display_replicated_table(df_product_full, "s2")
-
     st.markdown("#### Region Cut")
     display_replicated_table(df_region_full, "s4")
 
@@ -579,18 +626,6 @@ with tab_ui:
     if not df_s8_view.empty: df_s8_view = df_s8_view.sort_values(by=SORT_METRICS_MAP[sort_s8], ascending=(order_s8 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s8_view.head(top_n_drill_s8), "s8")
 
-    st.markdown("#### Client × Product Type Drilldown")
-    selected_client_product = st.multiselect("Isolate Specific Corporate Partner Focus (Client × Product Type)", options=["All"] + active_drill_list, default=["All"], key="s6_drill_select")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    top_n_drill_s6 = col1.slider("Select Display Window Scale (Client × Product)", min_value=5, max_value=100, value=20, key="s6_slider")
-    sort_s6 = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="s6_sort")
-    order_s6 = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="s6_order")
-    
-    df_s6_view = df_client_prod_full.copy()
-    if selected_client_product and "All" not in selected_client_product: df_s6_view = df_s6_view[df_s6_view['Dimension'].str.split(' · ').str[0].isin(selected_client_product)]
-    if not df_s6_view.empty: df_s6_view = df_s6_view.sort_values(by=SORT_METRICS_MAP[sort_s6], ascending=(order_s6 == "Bottom Performers (Degrowing)"))
-    display_replicated_table(df_s6_view.head(top_n_drill_s6), "s6")
-
     st.markdown("#### Region × VL Drilldown")
     active_region_list = sorted(list(df_curr['region'].dropna().unique()))
     selected_region_vl = st.multiselect("Isolate Specific Region Focus (Region × VL)", options=["All"] + active_region_list, default=["All"], key="s11_drill_select")
@@ -603,6 +638,10 @@ with tab_ui:
     if selected_region_vl and "All" not in selected_region_vl: df_s11_view = df_s11_view[df_s11_view['Dimension'].str.split(' · ').str[0].isin(selected_region_vl)]
     if not df_s11_view.empty: df_s11_view = df_s11_view.sort_values(by=SORT_METRICS_MAP[sort_s11], ascending=(order_s11 == "Bottom Performers (Degrowing)"))
     display_replicated_table(df_s11_view.head(top_n_drill_s11), "s11")
+
+    st.markdown("#### Product Type Cut")
+    st.markdown("*(Note: Moved to bottom of rendering queue)*")
+    display_replicated_table(df_product_full, "s2")
 
 # ==========================================
 # RENDER TAB: ROLLING TRENDS
@@ -654,6 +693,7 @@ with tab_trends:
 
     df_vl_trend_view = df_trend_raw.copy()
     
+    # --- DYNAMIC ROLLING RANKING SYSTEM ENGINE ---
     week_newest = trend_target_weeks[0]
     week_oldest = trend_target_weeks[-1]
     
