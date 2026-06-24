@@ -65,6 +65,11 @@ allWeeks = sorted(list(df_raw['week'].dropna().unique()), reverse=True)
 # --- 3. Sidebar Filter Panel Architecture ---
 st.sidebar.header("⏱️ Operational Scope")
 
+# Force Data Refresh Button
+if st.sidebar.button("🔄 Force Live Data Refresh", help="Clear the 30-minute cache and pull the latest numbers from the database.", use_container_width=True):
+    fetch_and_compile_data.clear()
+    st.rerun()
+
 anchor_week = st.sidebar.selectbox("📅 Master Week Slicer", options=allWeeks, help="Select a week to act as 'Present Day'. Both MTD and WTD scopes will calculate accurately based on this anchor.")
 operational_today = df_raw[df_raw['week'] == anchor_week]['day'].max()
 
@@ -288,7 +293,6 @@ def get_trend_dataframe(df_trend, group_cols, dimension_order=None):
         grp['FT Δ'] = grp.groupby(primary_dim)['ft'].diff()
         grp['FT Δ%'] = grp.groupby(primary_dim)['ft'].pct_change() * 100
         grp['FT/OB% Δpp'] = grp.groupby(primary_dim)['FT/OB%'].diff()
-        
         if dimension_order:
             # Mathematical explicit rank mapping to fully bypass Pandas alphabetical defaults
             grp['_rank'] = grp[primary_dim].map({v: i for i, v in enumerate(dimension_order)})
@@ -608,11 +612,21 @@ with tab_trends:
     trend_target_weeks = [w for w in allWeeks if w <= anchor_week][:rolling_n]
     df_trend_raw = apply_dimensional_filters(df_raw[df_raw['week'].isin(trend_target_weeks)])
     
+    # Pre-Compile Trend Dataframes for Download Engine
     df_overall_trend = get_trend_dataframe(df_trend_raw, ['week'])
     df_client_trend = get_trend_dataframe(df_trend_raw, ['client', 'week'])
     df_vl_trend_full = get_trend_dataframe(df_trend_raw, ['vl_name', 'week'])
     
-    tab2_dfs = {"Overall_Trends": df_overall_trend, "Client_Trends": df_client_trend, "VL_Trends": df_vl_trend_full}
+    df_trend_raw_cvl = df_trend_raw.copy()
+    df_trend_raw_cvl['Client · VL'] = df_trend_raw_cvl['client'] + ' · ' + df_trend_raw_cvl['vl_name']
+    df_cvl_trend_full = get_trend_dataframe(df_trend_raw_cvl, ['Client · VL', 'week'])
+    
+    tab2_dfs = {
+        "Overall_Trends": df_overall_trend, 
+        "Client_Trends": df_client_trend, 
+        "VL_Trends": df_vl_trend_full,
+        "Client_VL_Trends": df_cvl_trend_full
+    }
 
     col_hdr2, col_dl2 = st.columns([8, 2])
     with col_hdr2: st.markdown("## 📈 Rolling Week-on-Week Performance")
@@ -639,17 +653,17 @@ with tab_trends:
     order_trend_vl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_vl_order")
 
     df_vl_trend_view = df_trend_raw.copy()
-
-    if "All" not in trend_client_filter and trend_client_filter:
-        df_vl_trend_view = df_vl_trend_view[df_vl_trend_view['client'].isin(trend_client_filter)]
-
-    # --- DYNAMIC ROLLING RANKING SYSTEM ENGINE ---
-    # Ranks the VLs by calculating the absolute shift strictly between the oldest and newest week in the slider window
+    
     week_newest = trend_target_weeks[0]
     week_oldest = trend_target_weeks[-1]
     
-    df_rank_newest = df_vl_trend_view[df_vl_trend_view['week'] == week_newest]
-    df_rank_oldest = df_vl_trend_view[df_vl_trend_view['week'] == week_oldest]
+    df_rank_newest = df_trend_raw[df_trend_raw['week'] == week_newest]
+    df_rank_oldest = df_trend_raw[df_trend_raw['week'] == week_oldest]
+
+    if "All" not in trend_client_filter and trend_client_filter:
+        df_vl_trend_view = df_vl_trend_view[df_vl_trend_view['client'].isin(trend_client_filter)]
+        df_rank_newest = df_rank_newest[df_rank_newest['client'].isin(trend_client_filter)]
+        df_rank_oldest = df_rank_oldest[df_rank_oldest['client'].isin(trend_client_filter)]
 
     vl_trend_payload = build_html_metric_payload(df_rank_newest, df_rank_oldest)["by_vl"]
     df_vl_ranking = transform_to_replicated_dataframe(vl_trend_payload)
@@ -662,6 +676,44 @@ with tab_trends:
         
     df_final_vl_render = get_trend_dataframe(df_vl_trend_view, ['vl_name', 'week'], dimension_order=top_vls_list)
     display_trend_html(df_final_vl_render, ['vl_name', 'week'], "vl_trend")
+
+    st.markdown("#### 4. Client × VL Matrix Drilldown × Week")
+    active_trend_clients_cvl = sorted(list(df_trend_raw['client'].dropna().unique()))
+    trend_cvl_client_filter = st.multiselect("Isolate Specific Corporate Partner Focus (Client × VL)", options=["All"] + active_trend_clients_cvl, default=["All"], key="trend_cvl_client_filter")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    top_n_trend_cvl = col1.slider("Select Display Window Scale (Client × VL Trend)", min_value=5, max_value=100, value=20, key="trend_cvl_slider")
+    sort_trend_cvl = col2.selectbox("Sort Priority By:", list(SORT_METRICS_MAP.keys()), index=0, key="trend_cvl_sort")
+    order_trend_cvl = col3.selectbox("Trend View:", ["Top Performers (Growing)", "Bottom Performers (Degrowing)"], key="trend_cvl_order")
+
+    df_cvl_trend_view = df_trend_raw_cvl.copy()
+    
+    df_rank_newest_cvl = df_trend_raw[df_trend_raw['week'] == week_newest]
+    df_rank_oldest_cvl = df_trend_raw[df_trend_raw['week'] == week_oldest]
+
+    if "All" not in trend_cvl_client_filter and trend_cvl_client_filter:
+        df_cvl_trend_view = df_cvl_trend_view[df_cvl_trend_view['client'].isin(trend_cvl_client_filter)]
+        df_rank_newest_cvl = df_rank_newest_cvl[df_rank_newest_cvl['client'].isin(trend_cvl_client_filter)]
+        df_rank_oldest_cvl = df_rank_oldest_cvl[df_rank_oldest_cvl['client'].isin(trend_cvl_client_filter)]
+
+    cvl_trend_payload = build_html_metric_payload(df_rank_newest_cvl, df_rank_oldest_cvl)
+    
+    drilled_rows_cvl = []
+    for c, data in cvl_trend_payload["funnel_drill"].items():
+        for row in data.get("by_vl", []): 
+            drilled_rows_cvl.append({**row, "dim": f"{c} · {row['dim']}"})
+            
+    df_cvl_ranking = transform_to_replicated_dataframe(drilled_rows_cvl)
+    
+    top_cvl_list = None
+    if not df_cvl_ranking.empty:
+        df_cvl_ranking = df_cvl_ranking.sort_values(by=SORT_METRICS_MAP[sort_trend_cvl], ascending=(order_trend_cvl == "Bottom Performers (Degrowing)"))
+        top_cvl_list = df_cvl_ranking.head(top_n_trend_cvl)["Dimension"].tolist()
+        df_cvl_trend_view = df_cvl_trend_view[df_cvl_trend_view['Client · VL'].isin(top_cvl_list)]
+        
+    df_final_cvl_render = get_trend_dataframe(df_cvl_trend_view, ['Client · VL', 'week'], dimension_order=top_cvl_list)
+    display_trend_html(df_final_cvl_render, ['Client · VL', 'week'], "cvl_trend")
+
 
 # ==========================================
 # RENDER SCOPE: CONTEXTUAL RCA GENERATOR
